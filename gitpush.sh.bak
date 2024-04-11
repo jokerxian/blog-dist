@@ -7,4 +7,4 @@ git add .
 git commit -m "脚本提交"
 
 # 推送到远程仓库，将分支名称替换为您要推送的分支
-git push origin main
+git push origin master
