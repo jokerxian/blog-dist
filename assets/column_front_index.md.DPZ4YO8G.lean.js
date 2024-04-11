@@ -1,0 +1,1 @@
+import{_ as e,c as t,o as n}from"./chunks/framework.BgExJILf.js";const p=JSON.parse('{"title":"","description":"","frontmatter":{},"headers":[],"relativePath":"column/front/index.md","filePath":"column/front/index.md"}'),o={name:"column/front/index.md"};function r(a,c,s,d,i,m){return n(),t("div")}const _=e(o,[["render",r]]);export{p as __pageData,_ as default};
