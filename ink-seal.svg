@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="半亩方塘朱砂印章">
+  <rect width="64" height="64" rx="6" fill="#A82E28" />
+  <rect x="5" y="5" width="54" height="54" rx="3" fill="none" stroke="#F7F4ED" stroke-width="1.6" opacity="0.75" />
+  <rect x="9" y="9" width="46" height="46" rx="2" fill="none" stroke="#F7F4ED" stroke-width="0.8" opacity="0.35" />
+  <text x="32" y="45" text-anchor="middle" font-family="'Songti SC','STSong','Noto Serif SC',serif" font-size="32" font-weight="600" fill="#FBF9F5">墨</text>
+</svg>
