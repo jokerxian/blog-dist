@@ -36,6 +36,13 @@
   h1 { font-size: 22px; color: var(--gold); line-height: 1.25; letter-spacing: -.01em; }
   .sub { font-size: 12px; color: var(--dim); margin-top: 6px; }
   .header-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+  .account-filter {
+    width: auto; max-width: 170px; flex: none;
+    padding: 7px 10px; border-radius: 8px; text-overflow: ellipsis;
+    cursor: pointer; box-shadow: 0 1px 2px rgba(16,24,40,.04);
+  }
+  .account-filter:hover { background: #f9fafb; }
+  .account-filter:focus-visible { outline: 2px solid rgba(240,180,41,.55); outline-offset: 1px; }
   .cloud-pill {
     display: flex; align-items: center; gap: 6px;
     background: #fff; border: 1px solid var(--line); border-radius: 999px;
@@ -80,10 +87,6 @@
   .card:hover {
     box-shadow: 0 2px 6px rgba(15,23,42,.04), 0 12px 28px rgba(15,23,42,.08);
     transform: translateY(-2px);
-  }
-  .card.flash {
-    border-color: #f0b429;
-    box-shadow: 0 0 0 3px rgba(240,180,41,.35), 0 8px 24px rgba(16,24,40,.10);
   }
   .card::after {
     content: ''; position: absolute; top: 0; left: 14px; right: 14px; height: 2.5px;
@@ -237,8 +240,6 @@
     display: flex; flex-direction: column; gap: 4px; min-width: 0;
     padding: 9px 11px 9px 14px; border-radius: 10px;
     background: #f6f8fb; border: 1px solid transparent;
-    cursor: pointer;
-    transition: background .2s, border-color .2s, box-shadow .2s, transform .2s;
   }
   .up-item::before {
     content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px;
@@ -250,10 +251,6 @@
   .up-item.tier-4::before { background: #2563eb; }
   .up-item.tier-5::before { background: #047857; }
   .up-item.tier-done::before { background: #cbd5e1; }
-  .up-item:hover {
-    background: #ffffff; border-color: rgba(240,180,41,.45);
-    box-shadow: 0 4px 12px rgba(15,23,42,.06); transform: translateY(-1px);
-  }
   .up-item.done { background: #f8fafc; }
   .up-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .up-acc {
@@ -464,6 +461,7 @@
       <p class="sub">每个账号一张卡片，按结束时间从快到慢排列<span class="drag-hint"> · 拖动卡片可排序</span></p>
     </div>
     <div class="header-actions">
+      <select class="account-filter" id="accountFilter" title="筛选账号" aria-label="筛选账号"></select>
       <button class="cloud-pill" id="cloudPill" title="云端同步状态">
         <span class="cloud-dot" id="cloudPillDot"></span>
         <span class="cloud-pill-text" id="cloudPillText">本地</span>
@@ -658,12 +656,14 @@
   const CLOUD_KEY = 'sb_publishable_YC9UtVVSLTbin_Ge1mDr2Q_nqZSnbND';
   const CLOUD_SYNC_ID_STORAGE = 'coc_cloud_sync_id_v1';
   const CLOUD_SETUP_DISMISSED = 'coc_cloud_setup_dismissed_v1';
+  const FILTER_KEY = 'coc_account_filter_v1';
   const CLOUD_HEADERS = {
     apikey: CLOUD_KEY,
     Authorization: `Bearer ${CLOUD_KEY}`,
     'Content-Type': 'application/json'
   };
   let cloudSyncId = localStorage.getItem(CLOUD_SYNC_ID_STORAGE) || '';
+  let filterAccountId = localStorage.getItem(FILTER_KEY) || '';
   let cloudPushTimer = null;
   let cloudSyncing = false;
   let cloudInitialized = false;
@@ -836,20 +836,38 @@
   }
 
   // ---------- 主页面卡片 ----------
-  function renderCards() {
-    const wrap = document.getElementById('cards');
-    wrap.innerHTML = '';
-    state.accounts.forEach(acc => wrap.appendChild(buildCard(acc)));
-    renderUpcoming();
-    tick();
+  /** 当前筛选的账号；为空时展示该同步码下的全部账号。 */
+  function getVisibleAccounts() {
+    if (!filterAccountId) return state.accounts;
+    const match = state.accounts.find(acc => acc.id === filterAccountId);
+    return match ? [match] : state.accounts;
   }
 
-  function focusAccountCard(accountId) {
-    const card = document.querySelector(`.card[data-account-id="${accountId}"]`);
-    if (!card) return;
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    card.classList.add('flash');
-    setTimeout(() => card.classList.remove('flash'), 1200);
+  function renderAccountFilter() {
+    if (filterAccountId && !state.accounts.some(acc => acc.id === filterAccountId)) {
+      filterAccountId = '';
+      localStorage.removeItem(FILTER_KEY);
+    }
+    const select = document.getElementById('accountFilter');
+    select.innerHTML = '';
+    const allOption = el('option', null, '全部账号');
+    allOption.value = '';
+    select.appendChild(allOption);
+    state.accounts.forEach(acc => {
+      const option = el('option', null, acc.name);
+      option.value = acc.id;
+      select.appendChild(option);
+    });
+    select.value = filterAccountId;
+  }
+
+  function renderCards() {
+    const wrap = document.getElementById('cards');
+    const accounts = getVisibleAccounts();
+    wrap.innerHTML = '';
+    accounts.forEach(acc => wrap.appendChild(buildCard(acc)));
+    renderUpcoming();
+    tick();
   }
 
   function renderUpcoming() {
@@ -858,9 +876,15 @@
     const sub = document.getElementById('upcomingSub');
     list.innerHTML = '';
 
+    /* 已筛选到单一账号时，该账号卡片本身已足够，不再展示跨账号的「即将完成」 */
+    if (filterAccountId) {
+      card.classList.add('hidden');
+      return;
+    }
+
     const now = Date.now();
     const all = [];
-    state.accounts.forEach(acc => acc.tasks.forEach(task => all.push({ acc, task })));
+    getVisibleAccounts().forEach(acc => acc.tasks.forEach(task => all.push({ acc, task })));
 
     if (!all.length) {
       card.classList.add('hidden');
@@ -882,11 +906,6 @@
       const done = task.endTime <= now;
       const item = el('div', 'up-item' + (done ? ' done' : ''));
       item.dataset.end = task.endTime;
-      item.title = done ? '点击定位到该账号卡片' : '点击打开该账号的加速';
-      item.addEventListener('click', () => {
-        if (done) focusAccountCard(acc.id);
-        else openAccel(acc.id);
-      });
 
       const line1 = el('div', 'up-line');
       const accName = el('span', 'up-acc', acc.name);
@@ -1181,7 +1200,7 @@
   function updateDocumentTitle() {
     const now = Date.now();
     let nearest = Infinity;
-    state.accounts.forEach(acc => {
+    getVisibleAccounts().forEach(acc => {
       acc.tasks.forEach(task => {
         if (task.endTime > now && task.endTime < nearest) nearest = task.endTime;
       });
@@ -1526,6 +1545,7 @@
   }
 
   function openDrawer() {
+    if (filterAccountId) state.activeAccountId = filterAccountId;
     document.getElementById('drawer').classList.add('show');
     document.getElementById('drawerMask').classList.add('show');
     renderConfig();
@@ -1657,6 +1677,9 @@
     };
     state.accounts.push(acc);
     state.activeAccountId = acc.id;
+    /* 新增账号后回到全部视图，避免新卡片被当前筛选隐藏 */
+    filterAccountId = '';
+    localStorage.removeItem(FILTER_KEY);
     saveState();
     closeTaskForm();
     renderAll();
@@ -2194,12 +2217,23 @@
   // ---------- 入口 ----------
   function renderAll() {
     lastDoneSignature = getDoneSignature();
+    renderAccountFilter();
     renderCards();
     renderConfig();
   }
 
   document.getElementById('openConfigBtn').addEventListener('click', openDrawer);
   document.getElementById('cloudPill').addEventListener('click', openDrawer);
+  document.getElementById('accountFilter').addEventListener('change', e => {
+    filterAccountId = e.target.value;
+    if (filterAccountId) {
+      localStorage.setItem(FILTER_KEY, filterAccountId);
+      state.activeAccountId = filterAccountId;
+    } else {
+      localStorage.removeItem(FILTER_KEY);
+    }
+    renderCards();
+  });
   document.getElementById('closeConfigBtn').addEventListener('click', closeDrawer);
   document.getElementById('drawerMask').addEventListener('click', closeDrawer);
   document.addEventListener('keydown', e => {
