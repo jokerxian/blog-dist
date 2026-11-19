@@ -1,0 +1,2338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>部落冲突倒计时</title>
+<style>
+  :root {
+    --bg: #f1f4f9;
+    --panel: #ffffff;
+    --panel-soft: #f2f4f7;
+    --line: #e4e7ec;
+    --text: #1f2329;
+    --muted: #667085;
+    --dim: #98a2b3;
+    --gold: #c2790a;
+    --green: #16a34a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background:
+      radial-gradient(ellipse 75% 220px at 18% 0%, rgba(245, 158, 11, 0.08), transparent 70%),
+      radial-gradient(ellipse 60% 200px at 85% 0%, rgba(139, 92, 246, 0.05), transparent 70%),
+      var(--bg);
+    color: var(--text);
+    padding: 20px 20px 48px; min-height: 100vh;
+  }
+  /* 嵌入博客时标题由文章题头承担，这里只保留右侧操作按钮 */
+  body.embedded { padding: 14px 14px 28px; }
+  body.embedded header { justify-content: flex-end; margin-bottom: 16px; }
+  body.embedded header > div:first-child { display: none; }
+  .page { max-width: 1800px; margin: 0 auto; }
+
+  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+  h1 { font-size: 22px; color: var(--gold); line-height: 1.25; letter-spacing: -.01em; }
+  .sub { font-size: 12px; color: var(--dim); margin-top: 6px; }
+  .header-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+  .cloud-pill {
+    display: flex; align-items: center; gap: 6px;
+    background: #fff; border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 10px; font-size: 11px; color: var(--muted);
+    box-shadow: 0 1px 2px rgba(15,23,42,.03);
+  }
+  .cloud-pill:hover { background: #f9fafb; }
+
+  button {
+    font-family: inherit; background: #eef1f5; color: #344054;
+    border: none; border-radius: 7px; padding: 7px 12px; font-size: 13px;
+    cursor: pointer; transition: background .15s;
+  }
+  button:hover { background: #e4e8ee; }
+  button:active { transform: scale(.98); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: #f0b429; color: #1f2329; font-weight: 600; }
+  button.primary:hover { background: #e6a91f; }
+  button.danger { background: #fde8e8; color: #b42318; }
+  button.danger:hover { background: #fbd5d5; }
+  .gear {
+    display: flex; align-items: center; gap: 6px; flex: none;
+    background: #fff; border: 1px solid var(--line); padding: 8px 14px;
+    box-shadow: 0 1px 2px rgba(16,24,40,.04);
+  }
+  .gear:hover { background: #f9fafb; }
+
+  /* ---------- 账号卡片 ---------- */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+  }
+  .card {
+    position: relative; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, #fffefb 0%, #ffffff 42%);
+    border: 1px solid rgba(15,23,42,.06); border-radius: 14px;
+    padding: 13px 14px 9px;
+    box-shadow: 0 1px 2px rgba(15,23,42,.03), 0 6px 20px rgba(15,23,42,.04);
+    transition: box-shadow .2s ease, transform .2s ease;
+  }
+  .card:hover {
+    box-shadow: 0 2px 6px rgba(15,23,42,.04), 0 12px 28px rgba(15,23,42,.08);
+    transform: translateY(-2px);
+  }
+  .card.flash {
+    border-color: #f0b429;
+    box-shadow: 0 0 0 3px rgba(240,180,41,.35), 0 8px 24px rgba(16,24,40,.10);
+  }
+  .card::after {
+    content: ''; position: absolute; top: 0; left: 14px; right: 14px; height: 2.5px;
+    border-radius: 0 0 3px 3px; background: transparent; pointer-events: none;
+  }
+  .card.attention-idle::after { background: #12b76a; }
+  .card.attention-done::after { background: #f0b429; }
+  .card.dragging { opacity: .45; transform: none; }
+  .card.drag-over-left::before,
+  .card.drag-over-right::before {
+    content: ''; position: absolute; top: 10px; bottom: 10px; width: 3px;
+    border-radius: 2px; background: #f0b429;
+  }
+  .card.drag-over-left::before { left: -2px; }
+  .card.drag-over-right::before { right: -2px; }
+  .drag-handle {
+    flex: none; margin-top: 1px; color: #c3c9d2; cursor: grab;
+    font-size: 14px; line-height: 1; user-select: none;
+  }
+  .drag-handle:active { cursor: grabbing; }
+  .card:hover .drag-handle { color: #98a2b3; }
+  .card-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+    padding-bottom: 10px; border-bottom: 1px solid #f1f3f6; margin-bottom: 6px;
+  }
+  .card-title { flex: 1; min-width: 0; }
+  .card-title h2 {
+    font-size: 14px; font-weight: 600; color: #101828;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .card-meta { display: block; margin-top: 2px; font-size: 10px; color: var(--dim); }
+  .th-pill {
+    display: inline-block; padding: 0 6px; border-radius: 6px;
+    background: #fff7e6; color: #a15c00; font-size: 9px; line-height: 15px; font-weight: 600;
+  }
+  .th-pill.th-13 { background: #e0f2fe; color: #0369a1; }
+  .th-pill.th-14 { background: #eaf7ee; color: #1b7a3d; }
+  .th-pill.th-15 { background: #f3edff; color: #6d3fc0; }
+  .th-pill.th-16 { background: #fff4d9; color: #996515; }
+  .th-pill.th-17 { background: #22262f; color: #f2c94c; }
+  .idle-pill {
+    display: inline-block; padding: 0 6px; border-radius: 999px;
+    background: #ecfdf3; color: #067647; font-size: 9px; line-height: 15px; font-weight: 600;
+  }
+  .idle-pill::before {
+    content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+    background: #12b76a; margin-right: 4px; vertical-align: 1px;
+  }
+  .done-pill {
+    display: inline-block; padding: 0 6px; border-radius: 999px;
+    background: #fff7ed; color: #c2410c; font-size: 9px; line-height: 15px; font-weight: 600;
+  }
+  .accel-btn {
+    flex: none; padding: 4px 8px; font-size: 10px; border-radius: 6px;
+    background: #fff8ea; color: #b26a00; border: 1px solid #fbe3b5;
+  }
+  .accel-btn:hover { background: #ffedc7; }
+  .card-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+  .mini-gear {
+    padding: 4px 6px; font-size: 11px; line-height: 1; border-radius: 6px;
+    background: transparent; color: #98a2b3;
+  }
+  .mini-gear:hover { background: #f2f4f7; color: #344054; }
+  .task-list { margin-top: 0; }
+  .tag {
+    flex: none; width: 42px; text-align: center;
+    font-size: 9px; line-height: 17px; border-radius: 6px;
+    border: 1px solid transparent;
+  }
+  .tag.builder { background: #fff5e0; color: #b26a00; border-color: #fbe3b5; }
+  .tag.pet { background: #e8f7ee; color: #15803d; border-color: #c9efda; }
+  .tag.research { background: #eef2ff; color: #4f46e5; border-color: #dbe3ff; }
+  .tline {
+    position: relative;
+    min-height: 43px;
+    padding: 8px 6px 9px; margin: 0 -6px; border-radius: 8px;
+    border-bottom: none; transition: background .15s;
+  }
+  .tline:hover { background: #f8fafc; }
+  .tech-zone { margin-top: 2px; padding-top: 4px; border-top: 1px solid #f1f3f6; }
+  .idle-line { opacity: 1; cursor: default; }
+  .idle-line:hover { background: transparent; }
+  .idle-line .tag { background: #f2f4f7; color: #98a2b3; border-color: #e4e7ec; }
+  .idle-text { color: #98a2b3; font-size: 11px; }
+  .tline-top { display: flex; align-items: center; gap: 6px; }
+  .tname { flex: 1; min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cd {
+    flex: none; font-variant-numeric: tabular-nums; font-size: 12px;
+    font-weight: 600; color: var(--gold); white-space: nowrap;
+  }
+  .cd.tier-1 { color: #dc2626; }
+  .cd.tier-2 { color: #c2410c; }
+  .cd.tier-3 { color: #a16207; }
+  .cd.tier-4 { color: #2563eb; }
+  .cd.tier-5 { color: #047857; }
+  .cd.tier-done { color: #98a2b3; }
+  .cd-wrap { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+  .finish { font-size: 9px; color: var(--dim); white-space: nowrap; }
+  .bar {
+    position: absolute; left: 6px; right: 6px; bottom: 2px;
+    height: 2px; margin-top: 0; border-radius: 999px;
+    background: rgba(15,23,42,.045); overflow: hidden;
+  }
+  .bar.bar-hidden { display: none; }
+  .bar-fill {
+    display: block; width: 0; height: 100%; border-radius: inherit;
+    background: linear-gradient(90deg, #34d399, #047857);
+    transition: width .8s linear, background .2s;
+  }
+  .bar-fill.tier-1 { background: linear-gradient(90deg, #f87171, #dc2626); }
+  .bar-fill.tier-2 { background: linear-gradient(90deg, #fb923c, #c2410c); }
+  .bar-fill.tier-3 { background: linear-gradient(90deg, #facc15, #a16207); }
+  .bar-fill.tier-4 { background: linear-gradient(90deg, #60a5fa, #2563eb); }
+  .bar-fill.tier-5 { background: linear-gradient(90deg, #34d399, #047857); }
+  .bar-fill.tier-done { background: linear-gradient(90deg, #e2e8f0, #cbd5e1); }
+  .complete-btn {
+    flex: none; height: 19px; padding: 0 7px; font-size: 10px; line-height: 17px;
+    border-radius: 5px; background: #ecfdf3; color: #067647; border: 1px solid #c9efda;
+  }
+  .complete-btn:hover { background: #d1fae5; }
+  .task-empty { text-align: center; padding: 20px 0; font-size: 11px; color: var(--dim); }
+  .group-empty { padding: 6px 0; font-size: 12px; color: #98a2b3; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin: -12px 0 14px; font-size: 10px; color: var(--dim); }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .legend-dot.t1 { background: #dc2626; }
+  .legend-dot.t2 { background: #c2410c; }
+  .legend-dot.t3 { background: #a16207; }
+  .legend-dot.t4 { background: #2563eb; }
+  .legend-dot.t5 { background: #047857; }
+
+  /* ---------- 即将完成汇总 ---------- */
+  .upcoming-card {
+    background: linear-gradient(135deg, #fffdf7 0%, #ffffff 55%);
+    border: 1px solid rgba(240,180,41,.28); border-radius: 14px;
+    padding: 12px 14px; margin-bottom: 14px;
+    box-shadow: 0 1px 2px rgba(15,23,42,.03), 0 6px 20px rgba(15,23,42,.04);
+  }
+  .upcoming-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #f1f3f6;
+  }
+  .upcoming-head h3 { font-size: 13px; font-weight: 600; color: #101828; }
+  .upcoming-sub { font-size: 11px; color: var(--dim); }
+  .upcoming-list {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px;
+  }
+  .up-item {
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+    padding: 9px 11px 9px 14px; border-radius: 10px;
+    background: #f6f8fb; border: 1px solid transparent;
+    cursor: pointer;
+    transition: background .2s, border-color .2s, box-shadow .2s, transform .2s;
+  }
+  .up-item::before {
+    content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px;
+    border-radius: 0 2px 2px 0; background: #cbd5e1;
+  }
+  .up-item.tier-1::before { background: #dc2626; }
+  .up-item.tier-2::before { background: #c2410c; }
+  .up-item.tier-3::before { background: #a16207; }
+  .up-item.tier-4::before { background: #2563eb; }
+  .up-item.tier-5::before { background: #047857; }
+  .up-item.tier-done::before { background: #cbd5e1; }
+  .up-item:hover {
+    background: #ffffff; border-color: rgba(240,180,41,.45);
+    box-shadow: 0 4px 12px rgba(15,23,42,.06); transform: translateY(-1px);
+  }
+  .up-item.done { background: #f8fafc; }
+  .up-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .up-acc {
+    flex: none; max-width: 84px; font-size: 11px; font-weight: 600; color: #111827;
+    background: #eef2f7; border-radius: 4px; padding: 1px 5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .up-sep { flex: none; color: var(--dim); font-size: 10px; }
+  .up-name { flex: 1; min-width: 0; font-size: 12px; color: #475467; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .up-item .tag { width: 38px; font-size: 9px; line-height: 16px; }
+  .up-item .cd { font-size: 12px; }
+  .up-finish { margin-left: auto; font-size: 10px; color: var(--dim); white-space: nowrap; }
+
+  /* ---------- 配置抽屉 ---------- */
+  .drawer-mask {
+    position: fixed; inset: 0; background: rgba(16,24,40,.3);
+    opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 30;
+  }
+  .drawer-mask.show { opacity: 1; pointer-events: auto; }
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%);
+    background: #fff; border-left: 1px solid var(--line);
+    box-shadow: -8px 0 24px rgba(16,24,40,.08);
+    transform: translateX(102%); transition: transform .24s ease;
+    z-index: 31; display: flex; flex-direction: column;
+  }
+  .drawer.show { transform: translateX(0); }
+  .drawer-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px; border-bottom: 1px solid var(--line); flex: none;
+  }
+  .drawer-head h2 { font-size: 15px; }
+  .close-btn {
+    background: transparent; padding: 4px 9px;
+    font-size: 18px; line-height: 1; color: var(--muted);
+  }
+  .close-btn:hover { background: #f2f4f7; color: var(--text); }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 18px; }
+
+  .config-section { padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+  .config-section:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+  .config-section h3 {
+    display: flex; align-items: center;
+    font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 10px;
+  }
+  .config-section h3::before {
+    content: ''; width: 3px; height: 12px; border-radius: 2px;
+    background: #f0b429; margin-right: 8px;
+  }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row select { flex: 1; width: auto; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+
+  input[type=text], input[type=number], select {
+    width: 100%; font-family: inherit; font-size: 13px; color: var(--text);
+    background: #fff; border: 1px solid #dde1e7; border-radius: 7px; padding: 8px 10px;
+  }
+  input::placeholder { color: #a5adb8; }
+  textarea {
+    width: 100%; font-family: Consolas, Menlo, monospace; font-size: 12px; line-height: 1.6;
+    color: var(--text); background: #fff; border: 1px solid #dde1e7; border-radius: 7px;
+    padding: 8px 10px; resize: vertical; min-height: 110px;
+  }
+  textarea::placeholder { color: #a5adb8; }
+  textarea:focus {
+    outline: none; border-color: #f0b429;
+    box-shadow: 0 0 0 3px rgba(240,180,41,.15);
+  }
+  .check-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin: 8px 0; }
+  .check-row input { width: auto; }
+  .ai-import { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); }
+  .ai-import-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--muted);
+  }
+  .ai-import-head button { font-size: 11px; padding: 4px 8px; }
+  .ai-hint { font-size: 11px; color: var(--dim); line-height: 1.6; margin-bottom: 8px; }
+  .prompt-details { margin-bottom: 8px; }
+  .prompt-details summary { font-size: 11px; color: #b26a00; cursor: pointer; }
+  .prompt-details pre {
+    margin-top: 6px; max-height: 180px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word;
+    font-family: Consolas, Menlo, monospace; font-size: 10.5px; line-height: 1.6;
+    color: #475467; background: #fafbfc; border: 1px solid var(--line);
+    border-radius: 7px; padding: 8px;
+  }
+  input:focus, select:focus {
+    outline: none; border-color: #f0b429;
+    box-shadow: 0 0 0 3px rgba(240,180,41,.15);
+  }
+  .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+  .cloud-status-row {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12px; color: var(--muted);
+  }
+  .cloud-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #cbd5e1; flex: none;
+  }
+  .cloud-dot.ok { background: #12b76a; box-shadow: 0 0 0 3px rgba(18,183,106,.12); }
+  .cloud-dot.syncing { background: #f0b429; box-shadow: 0 0 0 3px rgba(240,180,41,.12); }
+  .cloud-dot.error { background: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.10); }
+  .cloud-hint { font-size: 11px; color: var(--dim); line-height: 1.6; margin: 8px 0; }
+
+  .setup-mask {
+    position: fixed; inset: 0; background: rgba(16,24,40,.32);
+    display: none; align-items: center; justify-content: center;
+    padding: 16px; z-index: 50;
+  }
+  .setup-mask.show { display: flex; }
+  .setup-modal {
+    width: min(420px, 100%); background: #fff; border: 1px solid var(--line);
+    border-radius: 14px; padding: 18px;
+    box-shadow: 0 20px 48px rgba(16,24,40,.18);
+  }
+  .setup-modal h3 { font-size: 16px; margin-bottom: 8px; }
+  .setup-desc { font-size: 12px; color: var(--muted); line-height: 1.7; margin-bottom: 14px; }
+
+  .cfg-task {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0; border-bottom: 1px dashed #edf0f3;
+  }
+  .cfg-task:last-child { border-bottom: none; }
+  .cfg-task .cat {
+    flex: none; font-size: 10px; padding: 2px 6px; border-radius: 5px;
+    background: #f2f4f7; color: #667085;
+  }
+  .cfg-task .name { flex: 1; min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cfg-task .cd { font-size: 11px; }
+  .cfg-task button { padding: 3px 8px; font-size: 11px; }
+  .cfg-task .complete-btn { padding: 2px 8px; font-size: 10px; }
+
+  .task-form { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fafbfc; }
+  .hidden { display: none !important; }
+
+  /* ---------- 加速弹窗 ---------- */
+  .accel-mask {
+    position: fixed; inset: 0; background: rgba(16,24,40,.3);
+    display: none; align-items: center; justify-content: center;
+    padding: 16px; z-index: 40;
+  }
+  .accel-mask.show { display: flex; }
+  .accel-modal {
+    width: min(520px, 100%); max-height: min(680px, 90vh);
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 20px 48px rgba(16,24,40,.18);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .accel-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 10px; }
+  .accel-head h3 { font-size: 15px; }
+  .accel-tabs { display: flex; padding: 0 18px; border-bottom: 1px solid var(--line); }
+  .accel-tab {
+    background: transparent; border-radius: 0; padding: 8px 2px; margin-right: 18px;
+    font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent;
+  }
+  .accel-tab:hover { background: transparent; color: var(--text); }
+  .accel-tab.active { color: #b26a00; border-bottom-color: #f0b429; font-weight: 600; }
+  .accel-body { padding: 16px 18px 18px; overflow-y: auto; }
+  .accel-item { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .accel-item:last-child { margin-bottom: 0; }
+  .accel-item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .accel-item-head .title { font-size: 13px; font-weight: 600; }
+  .accel-item-head .meta { margin-left: auto; font-size: 11px; color: var(--dim); }
+  .accel-desc { font-size: 11px; color: var(--muted); line-height: 1.6; margin-bottom: 10px; }
+  .accel-row { display: flex; gap: 8px; align-items: center; }
+  .accel-row select { flex: 1; width: auto; font-size: 12px; }
+  .accel-row button { flex: none; }
+  .accel-row button:disabled { opacity: .45; cursor: not-allowed; }
+  .accel-row-note { flex: 1; font-size: 11px; color: var(--dim); }
+  .accel-note {
+    font-size: 11px; line-height: 1.7; color: #067647;
+    background: #ecfdf3; border-radius: 7px; padding: 8px 10px; margin-bottom: 12px;
+  }
+  .accel-note.warn { color: #b54708; background: #fffaeb; }
+  .assistant-cd { font-weight: 600; }
+  .accel-empty { font-size: 12px; color: var(--dim); text-align: center; padding: 18px 0; }
+
+  @media (max-width: 1200px) {
+    .upcoming-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 768px) {
+    body { padding: 14px 12px 32px; }
+    .cards { grid-template-columns: 1fr; }
+    .upcoming-list { grid-template-columns: 1fr; }
+    .drag-hint { display: none; }
+    .drag-handle { display: none; }
+    .cloud-pill-text { display: none; }
+    .cloud-pill { padding: 7px 8px; }
+    .mini-gear, .accel-btn { padding: 6px 9px; font-size: 11px; }
+    .gear { padding: 8px 12px; }
+    input[type=text], input[type=number], select, textarea { font-size: 16px; }
+    .drawer { height: 100dvh; bottom: auto; }
+    .accel-modal { max-height: 88dvh; }
+  }
+  @media (hover: none) {
+    .drag-handle { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <header>
+    <div>
+      <h1>🏰 部落冲突倒计时</h1>
+      <p class="sub">每个账号一张卡片，按结束时间从快到慢排列<span class="drag-hint"> · 拖动卡片可排序</span></p>
+    </div>
+    <div class="header-actions">
+      <button class="cloud-pill" id="cloudPill" title="云端同步状态">
+        <span class="cloud-dot" id="cloudPillDot"></span>
+        <span class="cloud-pill-text" id="cloudPillText">本地</span>
+      </button>
+      <button class="gear" id="openConfigBtn">⚙ 配置</button>
+    </div>
+  </header>
+
+  <div class="legend">
+    <span class="legend-item"><i class="legend-dot t1"></i>1 小时内</span>
+    <span class="legend-item"><i class="legend-dot t2"></i>6 小时内</span>
+    <span class="legend-item"><i class="legend-dot t3"></i>12 小时内</span>
+    <span class="legend-item"><i class="legend-dot t4"></i>1 天内</span>
+    <span class="legend-item"><i class="legend-dot t5"></i>超过 1 天</span>
+  </div>
+
+  <section class="upcoming-card hidden" id="upcomingCard">
+    <div class="upcoming-head">
+      <h3>⏰ 即将完成</h3>
+      <span class="upcoming-sub" id="upcomingSub">跨账号最快结束的任务</span>
+    </div>
+    <div class="upcoming-list" id="upcomingList"></div>
+  </section>
+
+  <main class="cards" id="cards"></main>
+</div>
+
+<div class="drawer-mask" id="drawerMask"></div>
+
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h2>配置</h2>
+    <button class="close-btn" id="closeConfigBtn" title="关闭">×</button>
+  </div>
+  <div class="drawer-body">
+    <section class="config-section">
+      <h3>账号</h3>
+      <div class="row" style="margin-bottom:10px;">
+        <select id="cfgAccountSelect"></select>
+        <button id="cfgAddAccountBtn">新增</button>
+        <button class="danger" id="cfgDelAccountBtn">删除</button>
+      </div>
+      <div class="row" style="margin-bottom:10px;">
+        <button id="cfgMoveUpBtn" style="flex:1;">↑ 上移</button>
+        <button id="cfgMoveDownBtn" style="flex:1;">↓ 下移</button>
+      </div>
+      <div class="field">
+        <label>账号名称</label>
+        <input type="text" id="cfgAccountName" placeholder="账号名称">
+      </div>
+      <div class="field">
+        <label>大本营等级（1–19，仅展示）</label>
+        <input type="number" id="cfgTownHallLevel" min="1" max="19">
+      </div>
+      <div class="field">
+        <label>建筑工人数量（1–6）</label>
+        <input type="number" id="cfgBuilderCount" min="1" max="6">
+      </div>
+      <div class="field">
+        <label>建筑工人学徒等级（1–8）</label>
+        <input type="number" id="cfgBuilderApprenticeLevel" min="1" max="8">
+      </div>
+      <div class="field">
+        <label>实验室助手等级（1–12）</label>
+        <input type="number" id="cfgLabAssistantLevel" min="1" max="12">
+      </div>
+    </section>
+
+    <section class="config-section">
+      <h3>任务</h3>
+      <div id="cfgTaskList"></div>
+
+      <div id="taskForm" class="task-form hidden">
+        <div class="field">
+          <label>分类</label>
+          <select id="formCategory">
+            <option value="builder">建筑工人</option>
+            <option value="pet">战宠小屋</option>
+            <option value="research">实验室</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>项目名称</label>
+          <input type="text" id="formName" placeholder="例如：加农炮升 15 级">
+        </div>
+        <div class="field">
+          <label>所需时长（天 / 小时 / 分钟）</label>
+          <div class="row">
+            <input type="number" id="formDays" min="0" value="0" placeholder="天">
+            <input type="number" id="formHours" min="0" value="0" placeholder="小时">
+            <input type="number" id="formMinutes" min="0" max="59" value="0" placeholder="分钟">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button id="formCancelBtn">取消</button>
+          <button class="primary" id="formSaveBtn">保存</button>
+        </div>
+      </div>
+
+      <button class="primary" id="cfgAddTaskBtn" style="width:100%;margin-top:10px;">+ 添加任务</button>
+    </section>
+
+    <section class="config-section">
+      <h3>云端同步</h3>
+      <div class="cloud-status-row">
+        <span class="cloud-dot" id="cloudDot"></span>
+        <span id="cloudStatus">正在连接云端…</span>
+      </div>
+      <p class="cloud-hint">未设置同步码时不会上传云端；设置后本地修改会自动上传，打开页面时会自动对比。</p>
+      <div class="field">
+        <label>同步码</label>
+        <div class="row">
+          <input type="text" id="cloudSyncIdInput" placeholder="例如：coc-abc123" spellcheck="false" maxlength="64">
+          <button id="cloudCopyIdBtn" disabled>复制</button>
+        </div>
+        <p class="cloud-hint">换设备时填写同一个同步码，再点“从云端拉取”。</p>
+      </div>
+      <button id="cloudApplyIdBtn" style="width:100%;margin-bottom:8px;">使用这个同步码</button>
+      <div class="row">
+        <button id="cloudPullBtn" style="flex:1;" disabled>从云端拉取</button>
+        <button id="cloudPushBtn" style="flex:1;" disabled>上传本地</button>
+      </div>
+      <button class="primary" id="cloudSyncBtn" style="width:100%;margin-top:8px;" disabled>立即同步</button>
+    </section>
+
+    <section class="config-section">
+      <h3>数据</h3>
+      <div class="row">
+        <button id="exportBtn" style="flex:1;">导出数据</button>
+        <button id="importBtn" style="flex:1;">导入 JSON 文件</button>
+        <input type="file" id="importFile" accept=".json" style="display:none">
+      </div>
+
+      <div class="ai-import">
+        <div class="ai-import-head">
+          <span>AI 截图导入</span>
+          <button id="copyPromptBtn">复制 AI 提示词</button>
+        </div>
+        <p class="ai-hint">把游戏截图交给 AI，用提示词让它输出 JSON，再粘贴到下面导入当前账号。</p>
+        <details class="prompt-details">
+          <summary>查看提示词</summary>
+          <pre id="aiPromptPreview"></pre>
+        </details>
+        <textarea id="aiImportInput" placeholder="粘贴 AI 输出的 JSON..."></textarea>
+        <label class="check-row">
+          <input type="checkbox" id="aiImportAppend">
+          追加到当前任务（不勾选则覆盖当前账号的任务）
+        </label>
+        <button class="primary" id="aiImportBtn" style="width:100%;">导入到当前账号</button>
+      </div>
+    </section>
+  </div>
+</aside>
+
+<div class="accel-mask" id="accelMask">
+  <div class="accel-modal">
+    <div class="accel-head">
+      <h3 id="accelTitle">加速</h3>
+      <button class="close-btn" id="accelCloseBtn" title="关闭">×</button>
+    </div>
+    <div class="accel-tabs">
+      <button class="accel-tab active" data-tab="item">道具</button>
+      <button class="accel-tab" data-tab="apprentice">学徒</button>
+    </div>
+    <div class="accel-body" id="accelBody"></div>
+  </div>
+</div>
+
+<div class="setup-mask" id="syncSetupMask">
+  <div class="setup-modal">
+    <h3>设置云端同步码</h3>
+    <p class="setup-desc">不同的人用不同同步码，数据互不影响。换设备时输入同一个同步码即可恢复。</p>
+    <div class="field">
+      <label>同步码</label>
+      <div class="row">
+        <input type="text" id="syncSetupInput" placeholder="字母、数字、-、_" spellcheck="false" maxlength="64">
+        <button id="syncSetupRandomBtn">随机</button>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button id="syncSetupLaterBtn">稍后</button>
+      <button class="primary" id="syncSetupSaveBtn">开始使用</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  if (window.self !== window.top) document.body.classList.add('embedded');
+  const STORAGE_KEY = 'coc_countdown_data_v1';
+  const CLOUD_ENDPOINT = 'https://veuxkavrcaeiwxkbboqo.supabase.co/rest/v1/coc_data';
+  const CLOUD_KEY = 'sb_publishable_YC9UtVVSLTbin_Ge1mDr2Q_nqZSnbND';
+  const CLOUD_SYNC_ID_STORAGE = 'coc_cloud_sync_id_v1';
+  const CLOUD_SETUP_DISMISSED = 'coc_cloud_setup_dismissed_v1';
+  const CLOUD_HEADERS = {
+    apikey: CLOUD_KEY,
+    Authorization: `Bearer ${CLOUD_KEY}`,
+    'Content-Type': 'application/json'
+  };
+  let cloudSyncId = localStorage.getItem(CLOUD_SYNC_ID_STORAGE) || '';
+  let cloudPushTimer = null;
+  let cloudSyncing = false;
+  let cloudInitialized = false;
+  const CATEGORY_META = {
+    builder: { label: '建筑工人', short: '建筑' },
+    pet: { label: '战宠小屋', short: '战宠' },
+    research: { label: '实验室', short: '研究' }
+  };
+
+  const AI_IMPORT_PROMPT = `你是《部落冲突》游戏截图的信息提取助手。我会提供一张或多张截图，请先做 OCR，只提取截图中确实可见的信息，不要猜测或编造。
+
+请严格只输出一个 JSON 对象，不要输出 Markdown 代码块、解释或多余文字。JSON 结构如下：
+
+{
+  "accountName": "截图中的账号名，若不可见则填空字符串",
+  "townHallLevel": 16,
+  "builderCount": 6,
+  "builderApprenticeLevel": 5,
+  "labAssistantLevel": 3,
+  "tasks": [
+    {
+      "category": "builder",
+      "slot": 1,
+      "name": "加农炮升 15 级",
+      "remainingMinutes": 4320,
+      "totalMinutes": 20160
+    },
+    {
+      "category": "pet",
+      "name": "莱希升 10 级",
+      "remainingMinutes": 2880
+    },
+    {
+      "category": "research",
+      "name": "闪电法术升 9 级",
+      "remainingMinutes": 1440
+    }
+  ]
+}
+
+字段规则：
+1. category 只能是 builder、pet、research，分别代表建筑工人、战宠小屋、实验室。
+2. name 使用截图中的项目名称；看不清时写“未知项目”，不要编造。
+3. slot 只用于建筑工人，取值 1-6，按截图中的工人位置填写；看不清可以省略，程序会自动分配空闲工人。
+4. remainingMinutes 是剩余总分钟数，用截图中的剩余时间换算：天 × 1440 + 小时 × 60 + 分钟。例如“3 天 4 小时”= 4560，“2 小时 30 分”= 150。不要输出秒，也不要输出时间戳。
+5. 只有截图中确实存在的任务才写入 tasks，不要为没有任务的分类创建条目。
+6. 无法确定的顶层字段可以省略。
+7. 如果截图中有多个账号，只提取当前打开的账号，并在 accountName 中注明。
+8. 如果截图能看到该项目的升级总时长，可额外提供 totalMinutes（总分钟数）；看不到就省略，程序会用剩余时间代替。
+9. 最终回复必须是可直接 JSON.parse 的内容，不要加注释、尾逗号或任何说明文字。
+
+现在开始识别我提供的截图，并按上述格式输出 JSON。`;
+
+  let state = loadState();
+  saveState(false);
+  let editingTaskId = null;
+  let editingInitialMinutes = null;
+  let dragAccountId = null;
+  let lastDoneSignature = null;
+
+  // ---------- 数据层 ----------
+  function defaultState() {
+    return {
+      accounts: [{
+        id: uid(), name: '我的账号', townHallLevel: 1, builderCount: 6,
+        builderApprenticeLevel: 1, labAssistantLevel: 1,
+        builderApprenticeCooldownEnd: 0, labAssistantCooldownEnd: 0,
+        tasks: []
+      }],
+      activeAccountId: null,
+      updatedAt: 0
+    };
+  }
+
+  function normalizeState(s) {
+    if (!s || !Array.isArray(s.accounts) || !s.accounts.length) {
+      throw new Error('数据结构不正确');
+    }
+    const categories = ['builder', 'pet', 'research'];
+    s.accounts = s.accounts.filter(acc => acc && typeof acc === 'object');
+    if (!s.accounts.length) throw new Error('没有可用的账号数据');
+    s.accounts.forEach(acc => {
+      if (!acc.id) acc.id = uid();
+      if (!acc.name) acc.name = '未命名账号';
+      acc.builderCount = Math.min(6, Math.max(1, Number(acc.builderCount) || 6));
+      acc.townHallLevel = Math.min(19, Math.max(1, Number(acc.townHallLevel) || 1));
+      acc.builderApprenticeLevel = Math.min(8, Math.max(1, Number(acc.builderApprenticeLevel) || 1));
+      acc.labAssistantLevel = Math.min(12, Math.max(1, Number(acc.labAssistantLevel) || 1));
+
+      const legacyCooldown = Number(acc.assistantCooldownEnd) || 0;
+      acc.builderApprenticeCooldownEnd = Number(acc.builderApprenticeCooldownEnd) || legacyCooldown || 0;
+      acc.labAssistantCooldownEnd = Number(acc.labAssistantCooldownEnd) || legacyCooldown || 0;
+      delete acc.assistantCooldownEnd;
+
+      if (!Array.isArray(acc.tasks)) acc.tasks = [];
+      acc.tasks = acc.tasks
+        .filter(t => t && t.id && t.name && categories.includes(t.category))
+        .map(t => {
+          t.endTime = Number(t.endTime) || Date.now();
+          const duration = Number(t.durationMs);
+          t.durationMs = Number.isFinite(duration) && duration > 0
+            ? duration
+            : Math.max(60000, t.endTime - Date.now());
+          return t;
+        });
+
+      const usedSlots = new Set();
+      const ordered = acc.tasks.slice().sort((a, b) => {
+        const aDone = a.endTime <= Date.now();
+        const bDone = b.endTime <= Date.now();
+        if (aDone !== bDone) return aDone ? 1 : -1;
+        return 0;
+      });
+      ordered.forEach(t => {
+        if (t.category !== 'builder') {
+          delete t.slot;
+          return;
+        }
+        let slot = Number(t.slot);
+        if (!Number.isInteger(slot) || slot < 1 || slot > acc.builderCount || usedSlots.has(slot)) {
+          slot = null;
+          for (let i = 1; i <= acc.builderCount; i++) {
+            if (!usedSlots.has(i)) { slot = i; break; }
+          }
+        }
+        if (slot) {
+          t.slot = slot;
+          usedSlots.add(slot);
+        } else {
+          delete t.slot;
+        }
+      });
+    });
+    if (!s.activeAccountId || !s.accounts.some(a => a.id === s.activeAccountId)) {
+      s.activeAccountId = s.accounts[0].id;
+    }
+    s.updatedAt = Number(s.updatedAt) || 0;
+    return s;
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return normalizeState(JSON.parse(raw));
+    } catch (e) { console.warn('读取本地数据失败', e); }
+    const s = defaultState();
+    s.activeAccountId = s.accounts[0].id;
+    return s;
+  }
+
+  function saveState(touch = true) {
+    if (touch) state.updatedAt = Date.now();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (touch) scheduleCloudPush();
+  }
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function getActiveAccount() {
+    return state.accounts.find(a => a.id === state.activeAccountId) || state.accounts[0];
+  }
+
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  // ---------- 主页面卡片 ----------
+  function renderCards() {
+    const wrap = document.getElementById('cards');
+    wrap.innerHTML = '';
+    state.accounts.forEach(acc => wrap.appendChild(buildCard(acc)));
+    renderUpcoming();
+    tick();
+  }
+
+  function focusAccountCard(accountId) {
+    const card = document.querySelector(`.card[data-account-id="${accountId}"]`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('flash');
+    setTimeout(() => card.classList.remove('flash'), 1200);
+  }
+
+  function renderUpcoming() {
+    const card = document.getElementById('upcomingCard');
+    const list = document.getElementById('upcomingList');
+    const sub = document.getElementById('upcomingSub');
+    list.innerHTML = '';
+
+    const now = Date.now();
+    const all = [];
+    state.accounts.forEach(acc => acc.tasks.forEach(task => all.push({ acc, task })));
+
+    if (!all.length) {
+      card.classList.add('hidden');
+      return;
+    }
+
+    all.sort((a, b) => {
+      const aDone = a.task.endTime <= now;
+      const bDone = b.task.endTime <= now;
+      if (aDone !== bDone) return aDone ? -1 : 1;
+      if (aDone) return b.task.endTime - a.task.endTime;
+      return a.task.endTime - b.task.endTime;
+    });
+
+    const doneCount = all.filter(item => item.task.endTime <= now).length;
+    sub.textContent = `已完成 ${doneCount} · 进行中 ${all.length - doneCount}`;
+
+    all.slice(0, 8).forEach(({ acc, task }) => {
+      const done = task.endTime <= now;
+      const item = el('div', 'up-item' + (done ? ' done' : ''));
+      item.dataset.end = task.endTime;
+      item.title = done ? '点击定位到该账号卡片' : '点击打开该账号的加速';
+      item.addEventListener('click', () => {
+        if (done) focusAccountCard(acc.id);
+        else openAccel(acc.id);
+      });
+
+      const line1 = el('div', 'up-line');
+      const accName = el('span', 'up-acc', acc.name);
+      accName.title = acc.name;
+      line1.appendChild(accName);
+      line1.appendChild(el('span', 'up-sep', '·'));
+      line1.appendChild(el('span', 'up-name', task.name));
+      item.appendChild(line1);
+
+      const line2 = el('div', 'up-line');
+      const tag = el('span', `tag ${task.category}`);
+      if (task.category === 'builder') {
+        tag.textContent = done ? '已完成' : (task.slot ? `工人${task.slot}` : '建筑');
+      } else {
+        tag.textContent = CATEGORY_META[task.category].short;
+      }
+      line2.appendChild(tag);
+
+      const cd = el('span', 'cd');
+      cd.dataset.end = task.endTime;
+      line2.appendChild(cd);
+
+      if (!done) {
+        const finish = el('span', 'finish up-finish', formatFinishTime(task.endTime));
+        finish.dataset.end = task.endTime;
+        line2.appendChild(finish);
+      }
+
+      item.appendChild(line2);
+      list.appendChild(item);
+    });
+
+    card.classList.remove('hidden');
+  }
+
+  function buildCard(acc) {
+    const card = el('article', 'card');
+    card.dataset.accountId = acc.id;
+
+    const head = el('div', 'card-head');
+    const handle = el('span', 'drag-handle', '⠿');
+    handle.title = '拖动排序';
+    head.appendChild(handle);
+
+    const titleBox = el('div', 'card-title');
+    titleBox.appendChild(el('h2', null, acc.name));
+    const used = acc.tasks.filter(t => t.category === 'builder' && t.endTime > Date.now()).length;
+    const idle = Math.max(0, acc.builderCount - used);
+    const done = acc.tasks.filter(t => t.endTime <= Date.now()).length;
+    if (done > 0) card.classList.add('attention-done');
+    else if (idle > 0) card.classList.add('attention-idle');
+    const meta = el('span', 'card-meta');
+    const th = acc.townHallLevel || 1;
+    meta.appendChild(el('span', `th-pill th-${th}`, `${th} 本`));
+    meta.appendChild(document.createTextNode(` · ${acc.builderCount} 工人 · `));
+    if (idle > 0) meta.appendChild(el('span', 'idle-pill', `空闲 ${idle}`));
+    else meta.appendChild(document.createTextNode('空闲 0'));
+    if (done > 0) {
+      meta.appendChild(document.createTextNode(' · '));
+      meta.appendChild(el('span', 'done-pill', `已完成 ${done}`));
+    }
+    titleBox.appendChild(meta);
+    head.appendChild(titleBox);
+
+    const actions = el('div', 'card-actions');
+    const gearBtn = el('button', 'mini-gear', '⚙');
+    gearBtn.title = '配置此账号';
+    gearBtn.addEventListener('click', () => openAccountConfig(acc.id));
+    actions.appendChild(gearBtn);
+
+    const accelBtn = el('button', 'accel-btn', '⚡ 加速');
+    accelBtn.addEventListener('click', () => openAccel(acc.id));
+    actions.appendChild(accelBtn);
+    head.appendChild(actions);
+    card.appendChild(head);
+
+    const builders = acc.tasks.filter(t => t.category === 'builder').sort(compareTasks);
+    const builderList = el('div', 'task-list');
+    if (!builders.length) {
+      builderList.appendChild(el('div', 'task-empty', '暂无建筑任务'));
+    } else {
+      builders.forEach(task => builderList.appendChild(buildLine(task, acc)));
+    }
+    card.appendChild(builderList);
+
+    const now = Date.now();
+    const researchTasks = acc.tasks.filter(t => t.category === 'research').sort(compareTasks);
+    const petTasks = acc.tasks.filter(t => t.category === 'pet').sort(compareTasks);
+    const techZone = el('div', 'tech-zone');
+    const techList = el('div', 'task-list');
+
+    researchTasks.forEach(task => techList.appendChild(buildLine(task, acc)));
+    if (!researchTasks.some(t => t.endTime > now)) {
+      techList.appendChild(buildIdleLine('research'));
+    }
+
+    const showPet = (acc.townHallLevel || 1) >= 14 || petTasks.length > 0;
+    if (showPet) {
+      petTasks.forEach(task => techList.appendChild(buildLine(task, acc)));
+      if (!petTasks.some(t => t.endTime > now)) {
+        techList.appendChild(buildIdleLine('pet'));
+      }
+    }
+
+    techZone.appendChild(techList);
+    card.appendChild(techZone);
+
+    bindCardDrag(card, acc, handle);
+    return card;
+  }
+
+  function clearDropMarks() {
+    document.querySelectorAll('.card').forEach(node => {
+      node.classList.remove('drag-over-left', 'drag-over-right');
+    });
+  }
+
+  function bindCardDrag(card, acc, handle) {
+    card.draggable = false;
+
+    handle.addEventListener('mousedown', () => { card.draggable = true; });
+    handle.addEventListener('mouseup', () => { card.draggable = false; });
+
+    card.addEventListener('dragstart', e => {
+      dragAccountId = acc.id;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', acc.id);
+    });
+
+    card.addEventListener('dragend', () => {
+      dragAccountId = null;
+      card.draggable = false;
+      card.classList.remove('dragging');
+      clearDropMarks();
+    });
+
+    card.addEventListener('dragover', e => {
+      if (!dragAccountId || dragAccountId === acc.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      clearDropMarks();
+      const rect = card.getBoundingClientRect();
+      const before = e.clientX < rect.left + rect.width / 2;
+      card.classList.add(before ? 'drag-over-left' : 'drag-over-right');
+    });
+
+    card.addEventListener('dragleave', e => {
+      if (!card.contains(e.relatedTarget)) {
+        card.classList.remove('drag-over-left', 'drag-over-right');
+      }
+    });
+
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      if (!dragAccountId || dragAccountId === acc.id) return;
+      const sourceIndex = state.accounts.findIndex(a => a.id === dragAccountId);
+      if (sourceIndex < 0) return;
+
+      const rect = card.getBoundingClientRect();
+      const before = e.clientX < rect.left + rect.width / 2;
+      const [moved] = state.accounts.splice(sourceIndex, 1);
+      const targetIndex = state.accounts.findIndex(a => a.id === acc.id);
+      state.accounts.splice(before ? targetIndex : targetIndex + 1, 0, moved);
+
+      dragAccountId = null;
+      card.draggable = false;
+      clearDropMarks();
+      saveState();
+      renderCards();
+      renderAccountSelect();
+    });
+  }
+
+  function compareTasks(a, b) {
+    const now = Date.now();
+    const aDone = a.endTime <= now;
+    const bDone = b.endTime <= now;
+    if (aDone !== bDone) return aDone ? 1 : -1;
+    if (aDone) return b.endTime - a.endTime;
+    return a.endTime - b.endTime;
+  }
+
+  function buildLine(task, acc) {
+    const line = el('div', 'tline');
+    const top = el('div', 'tline-top');
+
+    const tag = el('span', `tag ${task.category}`);
+    if (task.category === 'builder') {
+      tag.textContent = task.endTime <= Date.now()
+        ? '已完成'
+        : (task.slot ? `工人${task.slot}` : '建筑');
+    } else {
+      tag.textContent = CATEGORY_META[task.category].short;
+    }
+    top.appendChild(tag);
+
+    top.appendChild(el('span', 'tname', task.name));
+
+    const cdWrap = el('span', 'cd-wrap');
+    const cd = el('span', 'cd');
+    cd.dataset.end = task.endTime;
+    cd.dataset.task = task.id;
+    cdWrap.appendChild(cd);
+    const finish = el('span', 'finish', formatFinishTime(task.endTime));
+    finish.dataset.end = task.endTime;
+    cdWrap.appendChild(finish);
+    top.appendChild(cdWrap);
+
+    line.appendChild(top);
+
+    if (task.endTime <= Date.now()) {
+      const doneBtn = el('button', 'complete-btn', '完成');
+      doneBtn.title = '确认完成并删除这条任务';
+      doneBtn.addEventListener('click', () => deleteTask(task.id, acc.id, true));
+      top.appendChild(doneBtn);
+    } else {
+      const bar = el('div', 'bar');
+      const fill = el('span', 'bar-fill');
+      fill.dataset.end = task.endTime;
+      fill.dataset.duration = task.durationMs || 0;
+      bar.appendChild(fill);
+      line.appendChild(bar);
+    }
+
+    return line;
+  }
+
+  function buildIdleLine(category) {
+    const line = el('div', 'tline idle-line');
+    line.appendChild(el('span', `tag ${category}`, CATEGORY_META[category].short));
+    line.appendChild(el('span', 'tname idle-text', '空闲'));
+    return line;
+  }
+
+  // ---------- 倒计时 ----------
+  function formatDuration(ms) {
+    if (ms <= 0) return '已完成';
+    const totalMinutes = Math.ceil(ms / 60000);
+    const d = Math.floor(totalMinutes / 1440);
+    const h = Math.floor((totalMinutes % 1440) / 60);
+    const m = totalMinutes % 60;
+    if (d > 0) return `${d}天${h}时${m}分`;
+    if (h > 0) return `${h}时${m}分`;
+    return `${m}分`;
+  }
+
+  function formatFinishTime(endTime) {
+    const target = new Date(endTime);
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const targetStart = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+    const dayDiff = Math.round((targetStart - todayStart) / 86400000);
+    const hh = String(target.getHours()).padStart(2, '0');
+    const mm = String(target.getMinutes()).padStart(2, '0');
+    if (dayDiff === 0) return `今天 ${hh}:${mm}`;
+    if (dayDiff === 1) return `明天 ${hh}:${mm}`;
+    if (dayDiff === -1) return `昨天 ${hh}:${mm}`;
+    return `${target.getMonth() + 1}/${target.getDate()} ${hh}:${mm}`;
+  }
+
+  function applyTier(node, remain) {
+    node.classList.remove('tier-1', 'tier-2', 'tier-3', 'tier-4', 'tier-5', 'tier-done');
+    let tier = 'tier-5';
+    if (remain <= 0) tier = 'tier-done';
+    else if (remain <= 3600000) tier = 'tier-1';
+    else if (remain <= 6 * 3600000) tier = 'tier-2';
+    else if (remain <= 12 * 3600000) tier = 'tier-3';
+    else if (remain <= 24 * 3600000) tier = 'tier-4';
+    node.classList.add(tier);
+  }
+
+  function updateCountdown(node) {
+    const remain = Number(node.dataset.end) - Date.now();
+    node.textContent = formatDuration(remain);
+    applyTier(node, remain);
+  }
+
+  function updateBar(node) {
+    const remain = Number(node.dataset.end) - Date.now();
+    const duration = Number(node.dataset.duration) || 0;
+    let pct = 100;
+    if (remain > 0) {
+      pct = duration > 0 ? Math.min(99, Math.max(0, (1 - remain / duration) * 100)) : 0;
+    }
+    node.style.width = pct.toFixed(1) + '%';
+    applyTier(node, remain);
+    const bar = node.parentElement;
+    if (bar) bar.classList.toggle('bar-hidden', remain > 24 * 3600000 && pct <= 5);
+  }
+
+  function updateDocumentTitle() {
+    const now = Date.now();
+    let nearest = Infinity;
+    state.accounts.forEach(acc => {
+      acc.tasks.forEach(task => {
+        if (task.endTime > now && task.endTime < nearest) nearest = task.endTime;
+      });
+    });
+    document.title = nearest === Infinity
+      ? '部落冲突倒计时'
+      : `${formatDuration(nearest - now)} · 部落冲突倒计时`;
+  }
+
+  function tick() {
+    document.querySelectorAll('.cd[data-end]').forEach(updateCountdown);
+    document.querySelectorAll('.bar-fill[data-end]').forEach(updateBar);
+    document.querySelectorAll('.finish[data-end]').forEach(node => {
+      node.textContent = formatFinishTime(Number(node.dataset.end));
+    });
+    document.querySelectorAll('.up-item[data-end]').forEach(item => {
+      applyTier(item, Number(item.dataset.end) - Date.now());
+    });
+    document.querySelectorAll('.assistant-cd[data-end]').forEach(node => {
+      const remain = Number(node.dataset.end) - Date.now();
+      node.textContent = remain > 0 ? formatDuration(remain) : '可用';
+    });
+    updateDocumentTitle();
+  }
+
+  function getDoneSignature() {
+    return state.accounts
+      .map(acc => `${acc.id}:${acc.tasks.filter(t => t.endTime <= Date.now()).length}`)
+      .sort()
+      .join('|');
+  }
+
+  function checkCompletions() {
+    const signature = getDoneSignature();
+    if (lastDoneSignature === null) {
+      lastDoneSignature = signature;
+      return;
+    }
+    if (signature === lastDoneSignature) return;
+    lastDoneSignature = signature;
+    renderCards();
+    renderConfigTasks();
+    if (document.getElementById('accelMask').classList.contains('show')) renderAccel();
+  }
+
+  // ---------- 任务操作 ----------
+  function deleteTask(taskId, accountId, skipConfirm) {
+    const acc = state.accounts.find(a => a.id === accountId) || getActiveAccount();
+    if (!skipConfirm && !confirm('确定删除这个倒计时吗？')) return;
+    acc.tasks = acc.tasks.filter(t => t.id !== taskId);
+    saveState();
+    renderAll();
+  }
+
+  // ---------- 加速弹窗 ----------
+  let accelAccountId = null;
+  let accelTab = 'item';
+
+  function openAccel(accountId) {
+    accelAccountId = accountId;
+    accelTab = 'item';
+    renderAccel();
+    document.getElementById('accelMask').classList.add('show');
+  }
+
+  function closeAccel() {
+    document.getElementById('accelMask').classList.remove('show');
+    accelAccountId = null;
+  }
+
+  function getAccelAccount() {
+    return state.accounts.find(a => a.id === accelAccountId) || getActiveAccount();
+  }
+
+  function renderAccel() {
+    const acc = getAccelAccount();
+    document.getElementById('accelTitle').textContent = `加速 · ${acc.name}`;
+    document.querySelectorAll('.accel-tab').forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.tab === accelTab);
+    });
+    const body = document.getElementById('accelBody');
+    body.innerHTML = '';
+    if (accelTab === 'item') renderItemTab(acc, body);
+    else renderApprenticeTab(acc, body);
+    tick();
+  }
+
+  function getActiveTasks(acc, category) {
+    return acc.tasks
+      .filter(t => t.category === category && t.endTime > Date.now())
+      .sort((a, b) => a.endTime - b.endTime);
+  }
+
+  function taskLabel(task) {
+    if (task.category === 'builder') return `工人${task.slot || '?'} · ${task.name}`;
+    return `${CATEGORY_META[task.category].short} · ${task.name}`;
+  }
+
+  function accelItem(title, meta, desc, control) {
+    const card = el('div', 'accel-item');
+    const head = el('div', 'accel-item-head');
+    head.appendChild(el('span', 'title', title));
+    if (meta) head.appendChild(typeof meta === 'string' ? el('span', 'meta', meta) : meta);
+    card.appendChild(head);
+    card.appendChild(el('div', 'accel-desc', desc));
+    if (control) card.appendChild(control);
+    return card;
+  }
+
+  function targetRow(tasks, buttonLabel, onUse, disabled) {
+    const row = el('div', 'accel-row');
+    const sel = document.createElement('select');
+    tasks.forEach(task => {
+      const opt = document.createElement('option');
+      opt.value = task.id;
+      opt.textContent = taskLabel(task);
+      sel.appendChild(opt);
+    });
+    const btn = el('button', 'primary', buttonLabel);
+    btn.disabled = !!disabled;
+    btn.addEventListener('click', () => {
+      const task = tasks.find(t => t.id === sel.value);
+      if (task) onUse(task);
+    });
+    row.appendChild(sel);
+    row.appendChild(btn);
+    return row;
+  }
+
+  function actionRow(label, onUse) {
+    const row = el('div', 'accel-row');
+    row.appendChild(el('span', 'accel-row-note', '对所有进行中的建筑生效'));
+    const btn = el('button', 'primary', label);
+    btn.addEventListener('click', onUse);
+    row.appendChild(btn);
+    return row;
+  }
+
+  function applyAccel(action) {
+    action();
+    saveState();
+    closeAccel();
+    renderAll();
+  }
+
+  function renderItemTab(acc, body) {
+    const builders = getActiveTasks(acc, 'builder');
+    const researches = getActiveTasks(acc, 'research');
+    const pets = getActiveTasks(acc, 'pet');
+
+    if (!builders.length && !researches.length && !pets.length) {
+      body.appendChild(el('div', 'accel-empty', '当前没有进行中的任务'));
+      return;
+    }
+
+    if (builders.length) {
+      body.appendChild(accelItem(
+        '建筑工人药水',
+        `${builders.length} 个建筑进行中`,
+        '1 小时内全体建筑工人速度提升至 10 倍。按等效时间处理：立即为所有进行中的建筑任务各扣除 9 小时。',
+        actionRow('全部使用', () => applyAccel(() => {
+          builders.forEach(task => { task.endTime -= 9 * 3600 * 1000; });
+        }))
+      ));
+      body.appendChild(accelItem(
+        '建筑之书',
+        '',
+        '立即完成一个正在进行的建筑升级或建造，不保留剩余时间。',
+        targetRow(builders, '立即完成', task => applyAccel(() => {
+          task.endTime = Date.now();
+        }))
+      ));
+    }
+
+    if (researches.length) {
+      body.appendChild(accelItem(
+        '研究药水',
+        `${researches.length} 个研究进行中`,
+        '1 小时内研究速度提升至 24 倍。按等效时间处理：为选中的研究任务扣除 23 小时。',
+        targetRow(researches, '使用', task => applyAccel(() => {
+          task.endTime -= 23 * 3600 * 1000;
+        }))
+      ));
+      body.appendChild(accelItem(
+        '研究之书 / 战斗之书',
+        '',
+        '立即完成选中的研究项目。',
+        targetRow(researches, '立即完成', task => applyAccel(() => {
+          task.endTime = Date.now();
+        }))
+      ));
+    }
+
+    if (pets.length) {
+      body.appendChild(accelItem(
+        '战宠药水',
+        `${pets.length} 个战宠升级进行中`,
+        '1 小时内战宠升级速度提升至 24 倍。按等效时间处理：为选中的战宠升级扣除 23 小时。',
+        targetRow(pets, '使用', task => applyAccel(() => {
+          task.endTime -= 23 * 3600 * 1000;
+        }))
+      ));
+    }
+  }
+
+  function apprenticeMeta(level, ready, cooldownEnd) {
+    const meta = el('span', 'meta', `Lv.${level} · ${ready ? '可用' : '冷却中'}`);
+    if (!ready) {
+      meta.appendChild(document.createTextNode(' '));
+      const cd = el('span', 'assistant-cd');
+      cd.dataset.end = cooldownEnd;
+      meta.appendChild(cd);
+    }
+    return meta;
+  }
+
+  function renderApprenticeTab(acc, body) {
+    const now = Date.now();
+    const builderCooldownEnd = Number(acc.builderApprenticeCooldownEnd) || 0;
+    const labCooldownEnd = Number(acc.labAssistantCooldownEnd) || 0;
+    const builderReady = builderCooldownEnd <= now;
+    const labReady = labCooldownEnd <= now;
+
+    body.appendChild(el('div', 'accel-note', '两名助手各自独立计算 23 小时冷却，互不影响。'));
+
+    const builders = getActiveTasks(acc, 'builder');
+    const builderLevel = acc.builderApprenticeLevel || 1;
+    let builderControl;
+    if (!builders.length) {
+      builderControl = el('div', 'accel-empty', '暂无进行中的建筑任务');
+    } else {
+      builderControl = targetRow(builders, '指派', task => applyAccel(() => {
+        task.endTime -= builderLevel * 3600 * 1000;
+        acc.builderApprenticeCooldownEnd = Date.now() + 23 * 3600 * 1000;
+      }), !builderReady);
+    }
+    body.appendChild(accelItem(
+      '建筑工人学徒',
+      apprenticeMeta(builderLevel, builderReady, builderCooldownEnd),
+      `立即为目标建筑扣除 ${builderLevel} 小时升级时间。`,
+      builderControl
+    ));
+
+    const researches = getActiveTasks(acc, 'research');
+    const labLevel = acc.labAssistantLevel || 1;
+    let labControl;
+    if (!researches.length) {
+      labControl = el('div', 'accel-empty', '暂无进行中的研究任务');
+    } else {
+      labControl = targetRow(researches, '指派', task => applyAccel(() => {
+        task.endTime -= labLevel * 3600 * 1000;
+        acc.labAssistantCooldownEnd = Date.now() + 23 * 3600 * 1000;
+      }), !labReady);
+    }
+    body.appendChild(accelItem(
+      '实验室助手',
+      apprenticeMeta(labLevel, labReady, labCooldownEnd),
+      `立即为目标研究扣除 ${labLevel} 小时研究时间。`,
+      labControl
+    ));
+  }
+
+  // ---------- 配置 ----------
+  function renderConfig() {
+    renderAccountSelect();
+    renderAccountFields();
+    renderConfigTasks();
+    renderCloudFields();
+  }
+
+  function renderAccountSelect() {
+    const sel = document.getElementById('cfgAccountSelect');
+    sel.innerHTML = '';
+    state.accounts.forEach(acc => {
+      const opt = document.createElement('option');
+      opt.value = acc.id;
+      opt.textContent = acc.name;
+      if (acc.id === getActiveAccount().id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+
+    const idx = state.accounts.findIndex(a => a.id === getActiveAccount().id);
+    document.getElementById('cfgMoveUpBtn').disabled = idx <= 0;
+    document.getElementById('cfgMoveDownBtn').disabled = idx >= state.accounts.length - 1;
+  }
+
+  function renderAccountFields() {
+    const acc = getActiveAccount();
+    document.getElementById('cfgAccountName').value = acc.name;
+    document.getElementById('cfgTownHallLevel').value = acc.townHallLevel;
+    document.getElementById('cfgBuilderCount').value = acc.builderCount;
+    document.getElementById('cfgBuilderApprenticeLevel').value = acc.builderApprenticeLevel;
+    document.getElementById('cfgLabAssistantLevel').value = acc.labAssistantLevel;
+  }
+
+  function renderConfigTasks() {
+    const wrap = document.getElementById('cfgTaskList');
+    wrap.innerHTML = '';
+    const acc = getActiveAccount();
+    const tasks = acc.tasks.slice().sort((a, b) => {
+      const order = { builder: 0, pet: 1, research: 2 };
+      if (order[a.category] !== order[b.category]) return order[a.category] - order[b.category];
+      if (a.category === 'builder') return a.slot - b.slot;
+      return a.endTime - b.endTime;
+    });
+
+    if (!tasks.length) {
+      wrap.appendChild(el('div', 'group-empty', '暂无任务'));
+      return;
+    }
+
+    tasks.forEach(task => {
+      const row = el('div', 'cfg-task');
+      row.appendChild(el('span', 'cat', CATEGORY_META[task.category].short));
+      const prefix = task.category === 'builder' && task.slot ? `工人${task.slot} · ` : '';
+      row.appendChild(el('span', 'name', prefix + task.name));
+
+      const cd = el('span', 'cd');
+      cd.dataset.end = task.endTime;
+      cd.dataset.task = task.id;
+      row.appendChild(cd);
+
+      if (task.endTime <= Date.now()) {
+        const doneBtn = el('button', 'complete-btn', '完成');
+        doneBtn.title = '确认完成并删除这条任务';
+        doneBtn.addEventListener('click', () => deleteTask(task.id, acc.id, true));
+        row.appendChild(doneBtn);
+      } else {
+        const editBtn = el('button', null, '编辑');
+        editBtn.addEventListener('click', () => openTaskForm(task.id));
+        row.appendChild(editBtn);
+
+        const delBtn = el('button', 'danger', '删除');
+        delBtn.addEventListener('click', () => deleteTask(task.id));
+        row.appendChild(delBtn);
+      }
+
+      wrap.appendChild(row);
+    });
+
+    tick();
+  }
+
+  function openDrawer() {
+    document.getElementById('drawer').classList.add('show');
+    document.getElementById('drawerMask').classList.add('show');
+    renderConfig();
+  }
+
+  function openAccountConfig(accountId) {
+    state.activeAccountId = accountId;
+    saveState();
+    closeTaskForm();
+    openDrawer();
+  }
+
+  function closeDrawer() {
+    document.getElementById('drawer').classList.remove('show');
+    document.getElementById('drawerMask').classList.remove('show');
+    closeTaskForm();
+  }
+
+  // ---------- 任务表单 ----------
+  function findFreeSlot(acc, excludeTaskId) {
+    const used = new Set(
+      acc.tasks
+        .filter(t => t.category === 'builder' && t.id !== excludeTaskId && t.endTime > Date.now())
+        .map(t => t.slot)
+    );
+    for (let i = 1; i <= acc.builderCount; i++) {
+      if (!used.has(i)) return i;
+    }
+    return null;
+  }
+
+  function openTaskForm(taskId) {
+    editingTaskId = taskId || null;
+    const acc = getActiveAccount();
+    const form = document.getElementById('taskForm');
+    const catSel = document.getElementById('formCategory');
+
+    if (editingTaskId) {
+      const task = acc.tasks.find(t => t.id === editingTaskId);
+      if (!task) return;
+      catSel.value = task.category;
+      document.getElementById('formName').value = task.name;
+      const remain = Math.max(0, task.endTime - Date.now());
+      const totalMinutes = Math.ceil(remain / 60000);
+      document.getElementById('formDays').value = Math.floor(totalMinutes / 1440);
+      document.getElementById('formHours').value = Math.floor((totalMinutes % 1440) / 60);
+      document.getElementById('formMinutes').value = totalMinutes % 60;
+      editingInitialMinutes = totalMinutes;
+    } else {
+      catSel.value = 'builder';
+      document.getElementById('formName').value = '';
+      document.getElementById('formDays').value = 0;
+      document.getElementById('formHours').value = 0;
+      document.getElementById('formMinutes').value = 0;
+      editingInitialMinutes = null;
+    }
+
+    form.classList.remove('hidden');
+    document.getElementById('cfgAddTaskBtn').classList.add('hidden');
+    document.getElementById('formName').focus();
+  }
+
+  function closeTaskForm() {
+    document.getElementById('taskForm').classList.add('hidden');
+    document.getElementById('cfgAddTaskBtn').classList.remove('hidden');
+    editingTaskId = null;
+    editingInitialMinutes = null;
+  }
+
+  function saveTask() {
+    const acc = getActiveAccount();
+    const category = document.getElementById('formCategory').value;
+    const name = document.getElementById('formName').value.trim();
+    const days = Math.max(0, Number(document.getElementById('formDays').value) || 0);
+    const hours = Math.max(0, Number(document.getElementById('formHours').value) || 0);
+    const minutes = Math.max(0, Number(document.getElementById('formMinutes').value) || 0);
+
+    if (!name) { alert('请填写项目名称'); return; }
+    const enteredMinutes = days * 1440 + hours * 60 + minutes;
+    const durationMs = enteredMinutes * 60000;
+    const now = Date.now();
+
+    if (editingTaskId) {
+      const task = acc.tasks.find(t => t.id === editingTaskId);
+      if (!task) return;
+      if (category === 'builder') {
+        if (task.category !== 'builder' || !task.slot) {
+          const slot = findFreeSlot(acc, task.id);
+          if (slot === null) { alert('没有空闲工人，请先删除一个建筑任务。'); return; }
+          task.slot = slot;
+        }
+      } else {
+        delete task.slot;
+      }
+      task.name = name;
+      task.category = category;
+      if (enteredMinutes !== editingInitialMinutes) {
+        task.endTime = now + durationMs;
+        task.durationMs = durationMs;
+      }
+    } else {
+      let slot;
+      if (category === 'builder') {
+        slot = findFreeSlot(acc, null);
+        if (slot === null) { alert('没有空闲工人，请先删除一个建筑任务。'); return; }
+      }
+      acc.tasks.push({
+        id: uid(),
+        category,
+        slot: category === 'builder' ? slot : undefined,
+        name,
+        endTime: now + durationMs,
+        durationMs
+      });
+    }
+
+    saveState();
+    closeTaskForm();
+    renderAll();
+  }
+
+  // ---------- 账号操作 ----------
+  function addAccount() {
+    const acc = {
+      id: uid(), name: `账号 ${state.accounts.length + 1}`, townHallLevel: 1, builderCount: 6,
+      builderApprenticeLevel: 1, labAssistantLevel: 1,
+      builderApprenticeCooldownEnd: 0, labAssistantCooldownEnd: 0,
+      tasks: []
+    };
+    state.accounts.push(acc);
+    state.activeAccountId = acc.id;
+    saveState();
+    closeTaskForm();
+    renderAll();
+    const nameInput = document.getElementById('cfgAccountName');
+    nameInput.focus();
+    nameInput.select();
+  }
+
+  function deleteAccount() {
+    if (state.accounts.length <= 1) { alert('至少保留一个账号。'); return; }
+    const acc = getActiveAccount();
+    if (!confirm(`确定删除账号「${acc.name}」及其所有倒计时吗？`)) return;
+    state.accounts = state.accounts.filter(a => a.id !== acc.id);
+    state.activeAccountId = state.accounts[0].id;
+    saveState();
+    closeTaskForm();
+    renderAll();
+  }
+
+  function changeBuilderCount(val) {
+    const n = Math.min(6, Math.max(1, parseInt(val, 10) || 6));
+    const acc = getActiveAccount();
+    acc.builderCount = n;
+    acc.tasks = acc.tasks.filter(t => t.category !== 'builder' || t.slot <= n);
+    saveState();
+    closeTaskForm();
+    renderAll();
+  }
+
+  function moveActiveAccount(delta) {
+    const acc = getActiveAccount();
+    const idx = state.accounts.findIndex(a => a.id === acc.id);
+    const target = idx + delta;
+    if (target < 0 || target >= state.accounts.length) return;
+    state.accounts.splice(idx, 1);
+    state.accounts.splice(target, 0, acc);
+    saveState();
+    renderCards();
+    renderAccountSelect();
+  }
+
+  // ---------- 导入导出 ----------
+  function exportData() {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `coc_countdown_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importData(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const parsed = normalizeState(JSON.parse(e.target.result));
+        if (!confirm('导入将覆盖当前所有数据，确定继续吗？')) return;
+        state = parsed;
+        saveState();
+        closeTaskForm();
+        renderAll();
+      } catch (err) {
+        alert('导入失败：' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // ---------- AI 截图导入 ----------
+  function clampInt(value, min, max, fallback) {
+    const n = parseInt(value, 10);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function parseAiPayload(raw) {
+    let text = String(raw || '').trim();
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) text = text.slice(start, end + 1);
+    return JSON.parse(text);
+  }
+
+  function copyAiPrompt() {
+    const text = AI_IMPORT_PROMPT;
+    const fallback = () => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      document.body.removeChild(ta);
+      alert(ok ? '提示词已复制' : '复制失败，请展开提示词手动复制。');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text)
+        .then(() => alert('提示词已复制'))
+        .catch(fallback);
+    } else {
+      fallback();
+    }
+  }
+
+  function importAiData() {
+    const raw = document.getElementById('aiImportInput').value.trim();
+    if (!raw) { alert('请先粘贴 AI 输出的 JSON。'); return; }
+
+    let data;
+    try {
+      data = parseAiPayload(raw);
+    } catch (err) {
+      alert('JSON 解析失败：' + err.message);
+      return;
+    }
+    if (!data || !Array.isArray(data.tasks)) {
+      alert('数据格式不正确：缺少 tasks 数组。');
+      return;
+    }
+
+    const acc = getActiveAccount();
+    const append = document.getElementById('aiImportAppend').checked;
+    const builderCount = clampInt(data.builderCount, 1, 6, acc.builderCount);
+
+    let baseTasks = append ? acc.tasks.slice() : [];
+    if (append) {
+      baseTasks = baseTasks.filter(t => t.category !== 'builder' || t.slot <= builderCount);
+    }
+    const usedSlots = new Set(
+      baseTasks
+        .filter(t => t.category === 'builder' && t.endTime > Date.now())
+        .map(t => t.slot)
+    );
+
+    const now = Date.now();
+    const newTasks = [];
+    let skipped = 0;
+
+    data.tasks.forEach(item => {
+      if (!item || !item.name) { skipped++; return; }
+      const category = ['builder', 'pet', 'research'].includes(item.category) ? item.category : null;
+      const minutes = Number(item.remainingMinutes);
+      if (!category || !Number.isFinite(minutes) || minutes <= 0) { skipped++; return; }
+
+      const name = String(item.name).trim();
+      if (!name) { skipped++; return; }
+
+      const remainMinutes = Math.round(minutes);
+      const totalMinutes = Number(item.totalMinutes);
+      const durationMinutes = Number.isFinite(totalMinutes) && totalMinutes > remainMinutes
+        ? Math.round(totalMinutes)
+        : remainMinutes;
+      const durationMs = durationMinutes * 60000;
+      const task = {
+        id: uid(),
+        category,
+        name,
+        endTime: now + durationMs,
+        durationMs
+      };
+
+      if (category === 'builder') {
+        let slot = Number(item.slot);
+        if (!Number.isInteger(slot) || slot < 1 || slot > builderCount || usedSlots.has(slot)) {
+          slot = null;
+          for (let i = 1; i <= builderCount; i++) {
+            if (!usedSlots.has(i)) { slot = i; break; }
+          }
+        }
+        if (!slot) { skipped++; return; }
+        usedSlots.add(slot);
+        task.slot = slot;
+      }
+
+      newTasks.push(task);
+    });
+
+    if (!newTasks.length) {
+      alert('没有解析到可导入的任务，请检查 tasks 内容。');
+      return;
+    }
+
+    const extra = skipped ? `，另有 ${skipped} 项无法识别或没有空闲工人，将跳过` : '';
+    const modeText = append ? '追加到当前账号' : '覆盖当前账号的任务';
+    const aiName = typeof data.accountName === 'string' ? data.accountName.trim() : '';
+    const defaultName = acc.name === '我的账号' || /^账号\s*\d+$/.test(acc.name);
+    const renameTo = aiName && defaultName ? aiName : '';
+    const renameText = renameTo ? `，并把账号名改为「${renameTo}」` : '';
+    if (!confirm(`识别到 ${newTasks.length} 个任务，将${modeText}${extra}${renameText}。确定导入吗？`)) return;
+
+    if (renameTo) acc.name = renameTo;
+    acc.builderCount = builderCount;
+    if (data.townHallLevel != null) {
+      acc.townHallLevel = clampInt(data.townHallLevel, 1, 19, acc.townHallLevel);
+    }
+    if (data.builderApprenticeLevel != null) {
+      acc.builderApprenticeLevel = clampInt(data.builderApprenticeLevel, 1, 8, acc.builderApprenticeLevel);
+    }
+    if (data.labAssistantLevel != null) {
+      acc.labAssistantLevel = clampInt(data.labAssistantLevel, 1, 12, acc.labAssistantLevel);
+    }
+    acc.tasks = baseTasks.concat(newTasks);
+
+    saveState();
+    renderAll();
+    document.getElementById('aiImportInput').value = '';
+    alert('导入成功');
+  }
+
+  // ---------- 云端同步 ----------
+  function setCloudStatus(type, text) {
+    const dot = document.getElementById('cloudDot');
+    const textEl = document.getElementById('cloudStatus');
+    if (dot) dot.className = 'cloud-dot' + (type ? ' ' + type : '');
+    if (textEl) {
+      textEl.textContent = text;
+      textEl.title = text;
+    }
+    const pill = document.getElementById('cloudPill');
+    const pillDot = document.getElementById('cloudPillDot');
+    const pillText = document.getElementById('cloudPillText');
+    if (pill) pill.title = text;
+    if (pillDot) pillDot.className = 'cloud-dot' + (type ? ' ' + type : '');
+    if (pillText) {
+      pillText.textContent = type === 'ok' ? '已同步'
+        : type === 'syncing' ? '同步中'
+        : type === 'error' ? '同步失败'
+        : '本地';
+    }
+  }
+
+  function formatCloudTime(ms) {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  function cloudErrorMessage(err) {
+    const raw = String(err && err.message ? err.message : err);
+    const body = raw.replace(/^HTTP \d+:\s*/, '');
+    try {
+      const json = JSON.parse(body);
+      if (json && json.message) return json.message;
+    } catch (e) { /* 不是 JSON，直接返回原文 */ }
+    return raw.slice(0, 160);
+  }
+
+  function failCloud(err) {
+    console.warn('云端同步失败', err);
+    const msg = cloudErrorMessage(err);
+    let text = msg;
+    if (/permission denied/i.test(msg)) text = '表权限不足，请给 anon 授权';
+    else if (/column .* does not exist/i.test(msg)) text = '表字段不完整，请检查 id / state / updated_at';
+    else if (/row-level security/i.test(msg)) text = 'RLS 拦截，请添加访问策略';
+    setCloudStatus('error', '同步失败：' + text);
+  }
+
+  function generateSyncId() {
+    return 'coc-' + Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
+  }
+
+  function normalizeSyncId(value) {
+    const key = String(value || '').trim();
+    if (!/^[A-Za-z0-9_-]{3,64}$/.test(key)) {
+      alert('同步码只能包含字母、数字、-、_，长度 3~64 位');
+      return '';
+    }
+    return key;
+  }
+
+  function renderCloudFields() {
+    const input = document.getElementById('cloudSyncIdInput');
+    if (input) input.value = cloudSyncId;
+    const hasKey = !!cloudSyncId;
+    ['cloudPullBtn', 'cloudPushBtn', 'cloudSyncBtn', 'cloudCopyIdBtn'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.disabled = !hasKey;
+    });
+  }
+
+  function copyCloudId() {
+    if (!cloudSyncId) { alert('还没有设置同步码'); return; }
+    const text = cloudSyncId;
+    const fallback = () => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      document.body.removeChild(ta);
+      alert(ok ? '同步码已复制' : '复制失败，请手动选择复制。');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => alert('同步码已复制')).catch(fallback);
+    } else {
+      fallback();
+    }
+  }
+
+  function openSyncSetup() {
+    const mask = document.getElementById('syncSetupMask');
+    const input = document.getElementById('syncSetupInput');
+    input.value = generateSyncId();
+    mask.classList.add('show');
+    input.focus();
+    input.select();
+  }
+
+  function closeSyncSetup() {
+    document.getElementById('syncSetupMask').classList.remove('show');
+  }
+
+  async function startCloudWithKey(key) {
+    const previous = cloudSyncId;
+    cloudSyncId = key;
+    localStorage.setItem(CLOUD_SYNC_ID_STORAGE, key);
+    localStorage.removeItem(CLOUD_SETUP_DISMISSED);
+    cloudInitialized = true;
+    renderCloudFields();
+    setCloudStatus('syncing', '正在检查同步码…');
+
+    try {
+      const row = await fetchCloudRow();
+      if (!row) {
+        await pushCloudState(true);
+        return;
+      }
+      const info = parseCloudRow(row);
+      const useCloud = confirm('这个同步码云端已有数据。\n\n确定：从云端拉取并覆盖本地。\n取消：继续选择是否用本地覆盖云端。');
+      if (useCloud) {
+        state = info.state;
+        saveState(false);
+        lastDoneSignature = null;
+        renderAll();
+        setCloudStatus('ok', `已从云端恢复 ${formatCloudTime(info.updatedAt)}`);
+        return;
+      }
+      const useLocal = confirm('是否用当前本地数据覆盖云端这个同步码的数据？\n\n确定：上传本地覆盖云端。\n取消：取消切换同步码。');
+      if (!useLocal) {
+        cloudSyncId = previous;
+        if (previous) localStorage.setItem(CLOUD_SYNC_ID_STORAGE, previous);
+        else localStorage.removeItem(CLOUD_SYNC_ID_STORAGE);
+        renderCloudFields();
+        setCloudStatus('', '已取消切换同步码');
+        return;
+      }
+      await pushCloudState(true);
+    } catch (err) {
+      failCloud(err);
+    }
+  }
+
+  async function saveSyncSetup() {
+    const input = document.getElementById('syncSetupInput');
+    const key = normalizeSyncId(input.value);
+    if (!key) return;
+    closeSyncSetup();
+    await startCloudWithKey(key);
+  }
+
+  function postponeSyncSetup() {
+    localStorage.setItem(CLOUD_SETUP_DISMISSED, '1');
+    closeSyncSetup();
+    setCloudStatus('', '本地模式，未设置同步码');
+  }
+
+  async function applyCloudKeyFromInput() {
+    const input = document.getElementById('cloudSyncIdInput');
+    const key = normalizeSyncId(input.value);
+    if (!key) return;
+    if (key === cloudSyncId) {
+      setCloudStatus('ok', '同步码没有变化');
+      return;
+    }
+    await startCloudWithKey(key);
+  }
+
+  function parseCloudRow(row) {
+    if (!row) return null;
+    const raw = typeof row.state === 'string' ? JSON.parse(row.state) : row.state;
+    const cloudState = normalizeState(raw);
+    const rowUpdated = Date.parse(row.updated_at) || 0;
+    cloudState.updatedAt = Math.max(Number(cloudState.updatedAt) || 0, rowUpdated);
+    return {
+      state: cloudState,
+      updatedAt: cloudState.updatedAt,
+      hasTasks: cloudState.accounts.some(a => a.tasks.length > 0)
+    };
+  }
+
+  async function fetchCloudRow() {
+    const url = `${CLOUD_ENDPOINT}?id=eq.${encodeURIComponent(cloudSyncId)}&select=id,state,updated_at`;
+    const res = await fetch(url, { headers: CLOUD_HEADERS });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    const rows = await res.json();
+    return Array.isArray(rows) && rows.length ? rows[0] : null;
+  }
+
+  async function pushCloudState(silent = false) {
+    if (!cloudSyncId) { setCloudStatus('', '请先设置同步码'); return; }
+    if (cloudSyncing) return;
+    cloudSyncing = true;
+    if (!silent) setCloudStatus('syncing', '正在上传到云端…');
+    try {
+      const now = Date.now();
+      state.updatedAt = now;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const body = JSON.stringify([{
+        id: cloudSyncId,
+        state,
+        updated_at: new Date(now).toISOString()
+      }]);
+      const res = await fetch(CLOUD_ENDPOINT, {
+        method: 'POST',
+        headers: { ...CLOUD_HEADERS, Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      setCloudStatus('ok', `云端已同步 ${formatCloudTime(now)}`);
+    } catch (err) {
+      failCloud(err);
+    } finally {
+      cloudSyncing = false;
+    }
+  }
+
+  function scheduleCloudPush() {
+    if (!cloudInitialized || !cloudSyncId) return;
+    if (cloudPushTimer) clearTimeout(cloudPushTimer);
+    cloudPushTimer = setTimeout(() => {
+      cloudPushTimer = null;
+      if (cloudSyncing) {
+        scheduleCloudPush();
+        return;
+      }
+      pushCloudState(true);
+    }, 900);
+  }
+
+  async function pullCloudState(force = false) {
+    if (!cloudSyncId) { setCloudStatus('', '请先设置同步码'); return false; }
+    setCloudStatus('syncing', '正在读取云端…');
+    try {
+      const row = await fetchCloudRow();
+      if (!row) {
+        setCloudStatus('ok', '云端还没有数据');
+        return false;
+      }
+      const info = parseCloudRow(row);
+      const localUpdated = Number(state.updatedAt) || 0;
+      if (!force && info.updatedAt <= localUpdated) {
+        setCloudStatus('ok', `本地已是最新 ${formatCloudTime(localUpdated || Date.now())}`);
+        return false;
+      }
+      state = info.state;
+      saveState(false);
+      lastDoneSignature = null;
+      renderAll();
+      setCloudStatus('ok', `已从云端更新 ${formatCloudTime(info.updatedAt)}`);
+      return true;
+    } catch (err) {
+      console.warn('云端读取失败', err);
+      failCloud(err);
+      return false;
+    }
+  }
+
+  async function syncNow() {
+    if (!cloudSyncId) { setCloudStatus('', '请先设置同步码'); return; }
+    setCloudStatus('syncing', '正在检查云端…');
+    try {
+      const row = await fetchCloudRow();
+      if (!row) {
+        await pushCloudState(true);
+        return;
+      }
+      const info = parseCloudRow(row);
+      const localUpdated = Number(state.updatedAt) || 0;
+      const localHasTasks = state.accounts.some(a => a.tasks.length > 0);
+      if (!info.hasTasks && localHasTasks) {
+        await pushCloudState(true);
+        return;
+      }
+      if ((info.hasTasks && !localHasTasks) || info.updatedAt > localUpdated) {
+        await pullCloudState(true);
+      } else {
+        await pushCloudState(true);
+      }
+    } catch (err) {
+      failCloud(err);
+    }
+  }
+
+  async function initCloudSync() {
+    if (!cloudSyncId) {
+      setCloudStatus('', '本地模式，未设置同步码');
+      return;
+    }
+    setCloudStatus('syncing', '正在连接云端…');
+    try {
+      const row = await fetchCloudRow();
+      if (!row) {
+        if (!state.updatedAt) {
+          state.updatedAt = Date.now();
+          saveState(false);
+        }
+        await pushCloudState(true);
+        return;
+      }
+      const info = parseCloudRow(row);
+      const localUpdated = Number(state.updatedAt) || 0;
+      const localHasTasks = state.accounts.some(a => a.tasks.length > 0);
+      if (!info.hasTasks && localHasTasks) {
+        await pushCloudState(true);
+        return;
+      }
+      if ((info.hasTasks && !localHasTasks) || info.updatedAt > localUpdated) {
+        state = info.state;
+        saveState(false);
+        lastDoneSignature = null;
+        renderAll();
+        setCloudStatus('ok', `已从云端更新 ${formatCloudTime(info.updatedAt)}`);
+      } else {
+        await pushCloudState(true);
+      }
+    } catch (err) {
+      failCloud(err);
+    } finally {
+      cloudInitialized = true;
+    }
+  }
+
+  // ---------- 入口 ----------
+  function renderAll() {
+    lastDoneSignature = getDoneSignature();
+    renderCards();
+    renderConfig();
+  }
+
+  document.getElementById('openConfigBtn').addEventListener('click', openDrawer);
+  document.getElementById('cloudPill').addEventListener('click', openDrawer);
+  document.getElementById('closeConfigBtn').addEventListener('click', closeDrawer);
+  document.getElementById('drawerMask').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const setup = document.getElementById('syncSetupMask');
+      if (setup && setup.classList.contains('show')) {
+        postponeSyncSetup();
+        return;
+      }
+      closeAccel();
+      closeDrawer();
+    }
+  });
+
+  document.getElementById('cfgAccountSelect').addEventListener('change', e => {
+    state.activeAccountId = e.target.value;
+    saveState();
+    closeTaskForm();
+    renderAccountFields();
+    renderConfigTasks();
+  });
+
+  document.getElementById('cfgAddAccountBtn').addEventListener('click', addAccount);
+  document.getElementById('cfgDelAccountBtn').addEventListener('click', deleteAccount);
+  document.getElementById('cfgMoveUpBtn').addEventListener('click', () => moveActiveAccount(-1));
+  document.getElementById('cfgMoveDownBtn').addEventListener('click', () => moveActiveAccount(1));
+
+  document.getElementById('cfgAccountName').addEventListener('change', e => {
+    const acc = getActiveAccount();
+    acc.name = e.target.value.trim() || `账号 ${state.accounts.indexOf(acc) + 1}`;
+    saveState();
+    renderAll();
+  });
+
+  document.getElementById('cfgBuilderCount').addEventListener('change', e => changeBuilderCount(e.target.value));
+
+  document.getElementById('cfgTownHallLevel').addEventListener('change', e => {
+    const acc = getActiveAccount();
+    acc.townHallLevel = Math.min(19, Math.max(1, parseInt(e.target.value, 10) || 1));
+    saveState();
+    renderAll();
+  });
+
+  document.getElementById('cfgBuilderApprenticeLevel').addEventListener('change', e => {
+    const acc = getActiveAccount();
+    acc.builderApprenticeLevel = Math.min(8, Math.max(1, parseInt(e.target.value, 10) || 1));
+    saveState();
+    renderAccountFields();
+  });
+  document.getElementById('cfgLabAssistantLevel').addEventListener('change', e => {
+    const acc = getActiveAccount();
+    acc.labAssistantLevel = Math.min(12, Math.max(1, parseInt(e.target.value, 10) || 1));
+    saveState();
+    renderAccountFields();
+  });
+
+  document.querySelectorAll('.accel-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      accelTab = tab.dataset.tab;
+      renderAccel();
+    });
+  });
+  document.getElementById('accelCloseBtn').addEventListener('click', closeAccel);
+  document.getElementById('accelMask').addEventListener('click', e => {
+    if (e.target.id === 'accelMask') closeAccel();
+  });
+
+  document.getElementById('cfgAddTaskBtn').addEventListener('click', () => openTaskForm(null));
+  document.getElementById('formCancelBtn').addEventListener('click', closeTaskForm);
+  document.getElementById('formSaveBtn').addEventListener('click', saveTask);
+  document.getElementById('taskForm').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+      e.preventDefault();
+      saveTask();
+    }
+  });
+  document.addEventListener('mouseup', () => {
+    if (dragAccountId) return;
+    document.querySelectorAll('.card').forEach(card => { card.draggable = false; });
+  });
+
+  document.getElementById('exportBtn').addEventListener('click', exportData);
+  document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
+  document.getElementById('importFile').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) importData(file);
+    e.target.value = '';
+  });
+
+  document.getElementById('copyPromptBtn').addEventListener('click', copyAiPrompt);
+  document.getElementById('aiImportBtn').addEventListener('click', importAiData);
+  document.getElementById('aiPromptPreview').textContent = AI_IMPORT_PROMPT;
+
+  document.getElementById('cloudPullBtn').addEventListener('click', () => {
+    if (!confirm('从云端拉取会覆盖本地数据，确定继续吗？')) return;
+    pullCloudState(true);
+  });
+  document.getElementById('cloudPushBtn').addEventListener('click', () => pushCloudState());
+  document.getElementById('cloudSyncBtn').addEventListener('click', syncNow);
+  document.getElementById('cloudApplyIdBtn').addEventListener('click', applyCloudKeyFromInput);
+  document.getElementById('cloudCopyIdBtn').addEventListener('click', copyCloudId);
+  document.getElementById('cloudSyncIdInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyCloudKeyFromInput();
+    }
+  });
+
+  document.getElementById('syncSetupRandomBtn').addEventListener('click', () => {
+    document.getElementById('syncSetupInput').value = generateSyncId();
+  });
+  document.getElementById('syncSetupSaveBtn').addEventListener('click', saveSyncSetup);
+  document.getElementById('syncSetupLaterBtn').addEventListener('click', postponeSyncSetup);
+  document.getElementById('syncSetupInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveSyncSetup();
+    }
+  });
+
+  renderAll();
+  renderCloudFields();
+  if (cloudSyncId) {
+    initCloudSync();
+  } else {
+    setCloudStatus('', '本地模式，未设置同步码');
+    /* 嵌入博客时不自动弹出同步码设置窗，需要时在「配置 → 云端同步」里手动设置 */
+  }
+  setInterval(() => {
+    checkCompletions();
+    tick();
+  }, 1000);
+})();
+</script>
+</body>
+</html>
