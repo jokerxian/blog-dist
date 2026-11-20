@@ -169,7 +169,8 @@
   .tech-zone { margin-top: 2px; padding-top: 4px; border-top: 1px solid #f1f3f6; }
   .idle-line { opacity: 1; cursor: default; }
   .idle-line:hover { background: transparent; }
-  .idle-line .tag { background: #f2f4f7; color: #98a2b3; border-color: #e4e7ec; }
+  .idle-line .tag,
+  .idle-tag { background: #f2f4f7; color: #98a2b3; border-color: #e4e7ec; }
   .idle-text { color: #98a2b3; font-size: 11px; }
   .tline-top { display: flex; align-items: center; gap: 6px; }
   .tname { flex: 1; min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -207,6 +208,11 @@
     border-radius: 5px; background: #ecfdf3; color: #067647; border: 1px solid #c9efda;
   }
   .complete-btn:hover { background: #d1fae5; }
+  .edit-btn {
+    flex: none; height: 19px; padding: 0 7px; font-size: 10px; line-height: 17px;
+    border-radius: 5px; background: #f2f4f7; color: #475467; border: 1px solid #e4e7ec;
+  }
+  .edit-btn:hover { background: #e9edf3; }
   .task-empty { text-align: center; padding: 20px 0; font-size: 11px; color: var(--dim); }
   .group-empty { padding: 6px 0; font-size: 12px; color: #98a2b3; }
 
@@ -371,6 +377,27 @@
   .setup-modal h3 { font-size: 16px; margin-bottom: 8px; }
   .setup-desc { font-size: 12px; color: var(--muted); line-height: 1.7; margin-bottom: 14px; }
 
+  /* ---------- 任务编辑弹窗 ---------- */
+  .task-edit-mask {
+    position: fixed; inset: 0; background: rgba(16,24,40,.32);
+    display: none; align-items: center; justify-content: center;
+    padding: 16px; z-index: 45;
+  }
+  .task-edit-mask.show { display: flex; }
+  .task-edit-modal {
+    width: min(460px, 100%); max-height: min(680px, 90vh);
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 20px 48px rgba(16,24,40,.18);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .task-edit-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px 10px;
+  }
+  .task-edit-head h3 { font-size: 15px; }
+  .task-edit-body { padding: 6px 18px 18px; overflow-y: auto; }
+  .task-edit-body .task-form { margin: 0; padding: 0; border: none; background: transparent; }
+
   .cfg-task {
     display: flex; align-items: center; gap: 8px;
     padding: 8px 0; border-bottom: 1px dashed #edf0f3;
@@ -384,8 +411,13 @@
   .cfg-task .cd { font-size: 11px; }
   .cfg-task button { padding: 3px 8px; font-size: 11px; }
   .cfg-task .complete-btn { padding: 2px 8px; font-size: 10px; }
+  .cfg-task .edit-btn { padding: 2px 8px; font-size: 10px; height: auto; line-height: 1.5; }
 
   .task-form { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fafbfc; }
+  .form-hint {
+    font-size: 11px; line-height: 1.6; color: #b54708;
+    background: #fffaeb; border-radius: 6px; padding: 6px 8px; margin-bottom: 10px;
+  }
   .hidden { display: none !important; }
 
   /* ---------- 加速弹窗 ---------- */
@@ -419,6 +451,18 @@
   .accel-desc { font-size: 11px; color: var(--muted); line-height: 1.6; margin-bottom: 10px; }
   .accel-row { display: flex; gap: 8px; align-items: center; }
   .accel-row select { flex: 1; width: auto; font-size: 12px; }
+  .accel-row .accel-mult { width: 64px; flex: none; text-align: center; }
+  .accel-row .accel-unit { flex: none; font-size: 11px; color: var(--dim); }
+  .custom-accel { display: flex; flex-direction: column; gap: 8px; }
+  .accel-check-group { border-top: 1px dashed #edf0f3; padding-top: 8px; }
+  .accel-check-group:first-child { border-top: none; padding-top: 0; }
+  .accel-check-head { font-size: 11px; color: var(--dim); margin-bottom: 2px; }
+  .accel-check {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 0; font-size: 12px; color: #344054; cursor: pointer;
+  }
+  .accel-check input { width: auto; flex: none; margin: 0; }
+  .accel-check:hover { color: #101828; }
   .accel-row button { flex: none; }
   .accel-row button:disabled { opacity: .45; cursor: not-allowed; }
   .accel-row-note { flex: 1; font-size: 11px; color: var(--dim); }
@@ -533,34 +577,6 @@
     <section class="config-section">
       <h3>任务</h3>
       <div id="cfgTaskList"></div>
-
-      <div id="taskForm" class="task-form hidden">
-        <div class="field">
-          <label>分类</label>
-          <select id="formCategory">
-            <option value="builder">建筑工人</option>
-            <option value="pet">战宠小屋</option>
-            <option value="research">实验室</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>项目名称</label>
-          <input type="text" id="formName" placeholder="例如：加农炮升 15 级">
-        </div>
-        <div class="field">
-          <label>所需时长（天 / 小时 / 分钟）</label>
-          <div class="row">
-            <input type="number" id="formDays" min="0" value="0" placeholder="天">
-            <input type="number" id="formHours" min="0" value="0" placeholder="小时">
-            <input type="number" id="formMinutes" min="0" max="59" value="0" placeholder="分钟">
-          </div>
-        </div>
-        <div class="form-actions">
-          <button id="formCancelBtn">取消</button>
-          <button class="primary" id="formSaveBtn">保存</button>
-        </div>
-      </div>
-
       <button class="primary" id="cfgAddTaskBtn" style="width:100%;margin-top:10px;">+ 添加任务</button>
     </section>
 
@@ -644,6 +660,44 @@
     <div class="form-actions">
       <button id="syncSetupLaterBtn">稍后</button>
       <button class="primary" id="syncSetupSaveBtn">开始使用</button>
+    </div>
+  </div>
+</div>
+
+<div class="task-edit-mask" id="taskEditMask">
+  <div class="task-edit-modal">
+    <div class="task-edit-head">
+      <h3 id="taskEditTitle">编辑任务</h3>
+      <button class="close-btn" id="taskEditCloseBtn" title="关闭">×</button>
+    </div>
+    <div class="task-edit-body">
+      <div id="taskForm" class="task-form">
+        <div class="field">
+          <label>分类</label>
+          <select id="formCategory">
+            <option value="builder">建筑工人</option>
+            <option value="pet">战宠小屋</option>
+            <option value="research">实验室</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>项目名称</label>
+          <input type="text" id="formName" placeholder="例如：加农炮升 15 级">
+        </div>
+        <div class="field">
+          <label>所需时长（天 / 小时 / 分钟）</label>
+          <div class="row">
+            <input type="number" id="formDays" min="0" value="0" placeholder="天">
+            <input type="number" id="formHours" min="0" value="0" placeholder="小时">
+            <input type="number" id="formMinutes" min="0" max="59" value="0" placeholder="分钟">
+          </div>
+        </div>
+        <p class="form-hint hidden" id="formHint"></p>
+        <div class="form-actions">
+          <button id="formCancelBtn">取消</button>
+          <button class="primary" id="formSaveBtn">保存</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1118,6 +1172,11 @@
     line.appendChild(top);
 
     if (task.endTime <= Date.now()) {
+      const editBtn = el('button', 'edit-btn', '编辑');
+      editBtn.title = '修改时长，继续升级这个项目';
+      editBtn.addEventListener('click', () => editTaskFromCard(acc.id, task.id));
+      top.appendChild(editBtn);
+
       const doneBtn = el('button', 'complete-btn', '完成');
       doneBtn.title = '确认完成并删除这条任务';
       doneBtn.addEventListener('click', () => deleteTask(task.id, acc.id, true));
@@ -1136,8 +1195,10 @@
 
   function buildIdleLine(category) {
     const line = el('div', 'tline idle-line');
-    line.appendChild(el('span', `tag ${category}`, CATEGORY_META[category].short));
-    line.appendChild(el('span', 'tname idle-text', '空闲'));
+    const top = el('div', 'tline-top');
+    top.appendChild(el('span', 'tag idle-tag', CATEGORY_META[category].short));
+    top.appendChild(el('span', 'tname idle-text', '空闲'));
+    line.appendChild(top);
     return line;
   }
 
@@ -1339,6 +1400,93 @@
     return row;
   }
 
+  /** 自定义加速：工人作用于全体，研究与战宠可多选。 */
+  function customAccelRow(builders, researches, pets) {
+    const wrap = el('div', 'custom-accel');
+
+    function addGroup(title, tasks, allBuilders) {
+      if (!tasks.length) return [];
+      const group = el('div', 'accel-check-group');
+      group.appendChild(el('div', 'accel-check-head', title));
+      const checks = [];
+
+      if (allBuilders) {
+        const label = el('label', 'accel-check');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        label.appendChild(checkbox);
+        label.appendChild(el('span', null, `全体工人（${tasks.length} 个进行中）`));
+        group.appendChild(label);
+        checks.push({ checkbox, tasks });
+      } else {
+        tasks.forEach(task => {
+          const label = el('label', 'accel-check');
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          label.appendChild(checkbox);
+          label.appendChild(el('span', null, task.name));
+          group.appendChild(label);
+          checks.push({ checkbox, task });
+        });
+      }
+
+      wrap.appendChild(group);
+      return checks;
+    }
+
+    const builderChecks = addGroup('建筑工人', builders, true);
+    const researchChecks = addGroup('研究', researches, false);
+    const petChecks = addGroup('战宠', pets, false);
+
+    const row = el('div', 'accel-row');
+    const mult = document.createElement('input');
+    mult.type = 'number';
+    mult.className = 'accel-mult';
+    mult.min = '2';
+    mult.step = '1';
+    mult.value = '2';
+    mult.title = '加速倍率';
+    mult.setAttribute('aria-label', '加速倍率');
+
+    const btn = el('button', 'primary', '应用');
+    btn.addEventListener('click', () => {
+      const multiplier = Number(mult.value);
+      if (!Number.isFinite(multiplier) || multiplier <= 1) {
+        alert('加速倍率需大于 1');
+        return;
+      }
+
+      const targets = [];
+      builderChecks.forEach(item => {
+        if (item.checkbox.checked) targets.push(...item.tasks);
+      });
+      researchChecks.forEach(item => {
+        if (item.checkbox.checked) targets.push(item.task);
+      });
+      petChecks.forEach(item => {
+        if (item.checkbox.checked) targets.push(item.task);
+      });
+
+      if (!targets.length) {
+        alert('请至少选择一个加速目标');
+        return;
+      }
+
+      applyAccel(() => {
+        targets.forEach(task => {
+          task.endTime -= (multiplier - 1) * 3600 * 1000;
+        });
+      });
+    });
+
+    row.appendChild(el('span', 'accel-unit', '倍率'));
+    row.appendChild(mult);
+    row.appendChild(el('span', 'accel-unit', '倍'));
+    row.appendChild(btn);
+    wrap.appendChild(row);
+    return wrap;
+  }
+
   function applyAccel(action) {
     action();
     saveState();
@@ -1355,6 +1503,13 @@
       body.appendChild(el('div', 'accel-empty', '当前没有进行中的任务'));
       return;
     }
+
+    body.appendChild(accelItem(
+      '自定义加速',
+      '工人 / 研究 / 战宠',
+      '按 1 小时加速道具折算：倍率 N 减少 (N-1) 小时，例如 2 倍减 1 小时、4 倍减 3 小时、24 倍减 23 小时。',
+      customAccelRow(builders, researches, pets)
+    ));
 
     if (builders.length) {
       body.appendChild(accelItem(
@@ -1524,6 +1679,11 @@
       row.appendChild(cd);
 
       if (task.endTime <= Date.now()) {
+        const editBtn = el('button', 'edit-btn', '编辑');
+        editBtn.title = '修改时长，继续升级这个项目';
+        editBtn.addEventListener('click', () => openTaskForm(task.id));
+        row.appendChild(editBtn);
+
         const doneBtn = el('button', 'complete-btn', '完成');
         doneBtn.title = '确认完成并删除这条任务';
         doneBtn.addEventListener('click', () => deleteTask(task.id, acc.id, true));
@@ -1558,6 +1718,12 @@
     openDrawer();
   }
 
+  /** 从主卡片编辑任务：只打开任务编辑弹窗，不展开整页配置。 */
+  function editTaskFromCard(accountId, taskId) {
+    state.activeAccountId = accountId;
+    openTaskForm(taskId);
+  }
+
   function closeDrawer() {
     document.getElementById('drawer').classList.remove('show');
     document.getElementById('drawerMask').classList.remove('show');
@@ -1577,11 +1743,21 @@
     return null;
   }
 
+  /** 某个工人槽位是否已被其他进行中的任务占用。 */
+  function isBuilderSlotTaken(acc, slot, excludeTaskId) {
+    return acc.tasks.some(task =>
+      task.id !== excludeTaskId &&
+      task.category === 'builder' &&
+      task.endTime > Date.now() &&
+      task.slot === slot
+    );
+  }
+
   function openTaskForm(taskId) {
     editingTaskId = taskId || null;
     const acc = getActiveAccount();
-    const form = document.getElementById('taskForm');
     const catSel = document.getElementById('formCategory');
+    const hint = document.getElementById('formHint');
 
     if (editingTaskId) {
       const task = acc.tasks.find(t => t.id === editingTaskId);
@@ -1594,6 +1770,10 @@
       document.getElementById('formHours').value = Math.floor((totalMinutes % 1440) / 60);
       document.getElementById('formMinutes').value = totalMinutes % 60;
       editingInitialMinutes = totalMinutes;
+
+      const isDone = task.endTime <= Date.now();
+      hint.textContent = isDone ? '这是已完成任务：填入新一轮升级时长后，会从当前时间重新开始倒计时。' : '';
+      hint.classList.toggle('hidden', !isDone);
     } else {
       catSel.value = 'builder';
       document.getElementById('formName').value = '';
@@ -1601,16 +1781,16 @@
       document.getElementById('formHours').value = 0;
       document.getElementById('formMinutes').value = 0;
       editingInitialMinutes = null;
+      hint.classList.add('hidden');
     }
 
-    form.classList.remove('hidden');
-    document.getElementById('cfgAddTaskBtn').classList.add('hidden');
+    document.getElementById('taskEditTitle').textContent = editingTaskId ? '编辑任务' : '添加任务';
+    document.getElementById('taskEditMask').classList.add('show');
     document.getElementById('formName').focus();
   }
 
   function closeTaskForm() {
-    document.getElementById('taskForm').classList.add('hidden');
-    document.getElementById('cfgAddTaskBtn').classList.remove('hidden');
+    document.getElementById('taskEditMask').classList.remove('show');
     editingTaskId = null;
     editingInitialMinutes = null;
   }
@@ -1632,7 +1812,8 @@
       const task = acc.tasks.find(t => t.id === editingTaskId);
       if (!task) return;
       if (category === 'builder') {
-        if (task.category !== 'builder' || !task.slot) {
+        /* 已完成任务重新计时时，原来的工人槽位可能已被别的任务占用 */
+        if (task.category !== 'builder' || !task.slot || isBuilderSlotTaken(acc, task.slot, task.id)) {
           const slot = findFreeSlot(acc, task.id);
           if (slot === null) { alert('没有空闲工人，请先删除一个建筑任务。'); return; }
           task.slot = slot;
@@ -2236,11 +2417,20 @@
   });
   document.getElementById('closeConfigBtn').addEventListener('click', closeDrawer);
   document.getElementById('drawerMask').addEventListener('click', closeDrawer);
+  document.getElementById('taskEditCloseBtn').addEventListener('click', closeTaskForm);
+  document.getElementById('taskEditMask').addEventListener('click', e => {
+    if (e.target.id === 'taskEditMask') closeTaskForm();
+  });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       const setup = document.getElementById('syncSetupMask');
       if (setup && setup.classList.contains('show')) {
         postponeSyncSetup();
+        return;
+      }
+      const taskEdit = document.getElementById('taskEditMask');
+      if (taskEdit && taskEdit.classList.contains('show')) {
+        closeTaskForm();
         return;
       }
       closeAccel();
