@@ -185,6 +185,12 @@
   .cd.tier-5 { color: #047857; }
   .cd.tier-done { color: #98a2b3; }
   .cd-wrap { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+  .cd-line { display: flex; align-items: baseline; gap: 4px; justify-content: flex-end; }
+  .cd-rate {
+    flex: none; padding: 0 4px; border-radius: 4px;
+    background: #fff7e6; color: #b26a00; border: 1px solid #fbe3b5;
+    font-size: 9px; line-height: 14px; font-weight: 600; white-space: nowrap;
+  }
   .finish { font-size: 9px; color: var(--dim); white-space: nowrap; }
   .bar {
     position: absolute; left: 6px; right: 6px; bottom: 2px;
@@ -474,6 +480,33 @@
   .assistant-cd { font-weight: 600; }
   .accel-empty { font-size: 12px; color: var(--dim); text-align: center; padding: 18px 0; }
 
+  /* ---------- 生效中的加速 ---------- */
+  .boost-box {
+    border: 1px solid #fbe3b5; border-radius: 10px;
+    background: linear-gradient(135deg, #fffdf6 0%, #fffaf0 100%);
+    padding: 10px 12px; margin-bottom: 12px;
+  }
+  .boost-box-head {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; font-weight: 600; color: #b26a00; margin-bottom: 4px;
+  }
+  .boost-item {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 7px 0; border-bottom: 1px dashed #f3e4c6;
+    font-size: 11px; color: #475467;
+  }
+  .boost-item:last-child { border-bottom: none; padding-bottom: 0; }
+  .boost-name {
+    flex: 1; min-width: 120px; font-size: 12px; color: #344054;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .boost-cd { flex: none; font-weight: 600; color: #b26a00; font-variant-numeric: tabular-nums; }
+  .boost-note { flex: none; font-size: 10px; color: var(--dim); }
+  .boost-item button { flex: none; padding: 3px 8px; font-size: 10px; border-radius: 5px; }
+  .boost-item button.danger { padding: 3px 8px; font-size: 10px; }
+  .accel-field-label { flex: none; font-size: 11px; color: var(--dim); }
+  .accel-row + .accel-row { margin-top: 6px; }
+
   @media (max-width: 1200px) {
     .upcoming-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
@@ -565,12 +598,12 @@
         <input type="number" id="cfgBuilderCount" min="1" max="6">
       </div>
       <div class="field">
-        <label>建筑工人学徒等级（1–8）</label>
-        <input type="number" id="cfgBuilderApprenticeLevel" min="1" max="8">
+        <label>建筑工人学徒等级（0 = 未解锁，1–8；每级 +1 小时/天）</label>
+        <input type="number" id="cfgBuilderApprenticeLevel" min="0" max="8">
       </div>
       <div class="field">
-        <label>实验室助手等级（1–12）</label>
-        <input type="number" id="cfgLabAssistantLevel" min="1" max="12">
+        <label>实验室助手等级（0 = 未解锁，1–12；每级 +1 小时/天）</label>
+        <input type="number" id="cfgLabAssistantLevel" min="0" max="12">
       </div>
     </section>
 
@@ -726,6 +759,20 @@
     pet: { label: '战宠小屋', short: '战宠' },
     research: { label: '实验室', short: '研究' }
   };
+  const BOOST_META = {
+    builder_potion: { label: '建筑工人药水', scope: 'builder', rateText: '×10' },
+    research_potion: { label: '研究药水', scope: 'research', rateText: '×24' },
+    pet_potion: { label: '战宠药水', scope: 'pet', rateText: '×24' },
+    builder_apprentice: { label: '建筑工人学徒' },
+    lab_assistant: { label: '实验室助手' },
+    custom: { label: '自定义加速' }
+  };
+  /** 「持续协助」向后推算的最大天数，避免无限展开 */
+  const AUTO_ASSIST_DAYS = 180;
+  const HOUR_MS = 3600000;
+  const DAY_MS = 86400000;
+  const APPRENTICE_WORK_MS = HOUR_MS;
+  const APPRENTICE_COOLDOWN_MS = 23 * HOUR_MS;
 
   const AI_IMPORT_PROMPT = `你是《部落冲突》游戏截图的信息提取助手。我会提供一张或多张截图，请先做 OCR，只提取截图中确实可见的信息，不要猜测或编造。
 
@@ -783,8 +830,10 @@
     return {
       accounts: [{
         id: uid(), name: '我的账号', townHallLevel: 1, builderCount: 6,
-        builderApprenticeLevel: 1, labAssistantLevel: 1,
+        builderApprenticeLevel: 0, labAssistantLevel: 0,
+        builderApprenticeAutoContinue: false, labAssistantAutoContinue: false,
         builderApprenticeCooldownEnd: 0, labAssistantCooldownEnd: 0,
+        boosts: [],
         tasks: []
       }],
       activeAccountId: null,
@@ -804,25 +853,47 @@
       if (!acc.name) acc.name = '未命名账号';
       acc.builderCount = Math.min(6, Math.max(1, Number(acc.builderCount) || 6));
       acc.townHallLevel = Math.min(19, Math.max(1, Number(acc.townHallLevel) || 1));
-      acc.builderApprenticeLevel = Math.min(8, Math.max(1, Number(acc.builderApprenticeLevel) || 1));
-      acc.labAssistantLevel = Math.min(12, Math.max(1, Number(acc.labAssistantLevel) || 1));
+      acc.builderApprenticeLevel = Math.min(8, Math.max(0, Number(acc.builderApprenticeLevel) || 0));
+      acc.labAssistantLevel = Math.min(12, Math.max(0, Number(acc.labAssistantLevel) || 0));
+      acc.builderApprenticeAutoContinue = !!acc.builderApprenticeAutoContinue;
+      acc.labAssistantAutoContinue = !!acc.labAssistantAutoContinue;
 
       const legacyCooldown = Number(acc.assistantCooldownEnd) || 0;
       acc.builderApprenticeCooldownEnd = Number(acc.builderApprenticeCooldownEnd) || legacyCooldown || 0;
       acc.labAssistantCooldownEnd = Number(acc.labAssistantCooldownEnd) || legacyCooldown || 0;
       delete acc.assistantCooldownEnd;
 
+      normalizeBoosts(acc);
+
       if (!Array.isArray(acc.tasks)) acc.tasks = [];
+      const now = Date.now();
       acc.tasks = acc.tasks
         .filter(t => t && t.id && t.name && categories.includes(t.category))
         .map(t => {
-          t.endTime = Number(t.endTime) || Date.now();
-          const duration = Number(t.durationMs);
-          t.durationMs = Number.isFinite(duration) && duration > 0
-            ? duration
-            : Math.max(60000, t.endTime - Date.now());
+          let duration = Number(t.durationMs);
+          let checkpoint = Number(t.checkpointAt);
+          let remain = Number(t.remainWorkMs);
+          const end = Number(t.endTime) || now;
+
+          if (!Number.isFinite(checkpoint) || checkpoint <= 0) {
+            /* 旧数据迁移：把固定的 endTime 换算成「某时刻还剩多少 1x 基础工期」 */
+            checkpoint = now;
+            remain = Math.max(0, end - now);
+            if (!Number.isFinite(duration) || duration <= 0) duration = Math.max(60000, remain);
+          } else {
+            if (!Number.isFinite(remain) || remain < 0) remain = Math.max(0, end - checkpoint);
+            if (!Number.isFinite(duration) || duration <= 0) duration = Math.max(60000, remain);
+          }
+
+          t.checkpointAt = checkpoint;
+          t.remainWorkMs = remain;
+          t.durationMs = Math.max(duration, remain);
+          t.endTime = end;
           return t;
         });
+
+      /* 结算到当前时刻，并顺带清掉已结束的加速区间 */
+      settleAccount(acc, now);
 
       const usedSlots = new Set();
       const ordered = acc.tasks.slice().sort((a, b) => {
@@ -887,6 +958,167 @@
     if (cls) node.className = cls;
     if (text !== undefined) node.textContent = text;
     return node;
+  }
+
+  // ---------- 时间流速引擎 ----------
+  /*
+   * 任务不直接保存 endTime，而是保存：
+   *   checkpointAt  上次结算时刻
+   *   remainWorkMs  该时刻还剩多少「1x 基础工期」
+   * 加速记录在账号的 boosts 里，按区间提供额外倍率。
+   * 任意时刻的剩余工期 = 从 checkpoint 到 now 对 (1 + ΣextraRate) 做分段积分。
+   */
+  function normalizeBoosts(acc) {
+    const list = Array.isArray(acc.boosts) ? acc.boosts : [];
+    acc.boosts = list
+      .filter(b => b && Number.isFinite(Number(b.startTime)) && Number.isFinite(Number(b.endTime)))
+      .map(b => {
+        const kind = BOOST_META[b.kind] ? b.kind : 'custom';
+        const scope = ['builder', 'pet', 'research', 'task'].includes(b.scope)
+          ? b.scope
+          : (b.taskId ? 'task' : (BOOST_META[kind].scope || 'builder'));
+        return {
+          id: b.id || uid(),
+          kind,
+          scope,
+          taskId: scope === 'task' ? (b.taskId || null) : null,
+          extraRate: Math.max(0, Number(b.extraRate) || 0),
+          startTime: Number(b.startTime),
+          endTime: Number(b.endTime),
+          autoContinue: !!b.autoContinue
+        };
+      });
+  }
+
+  function calcRateAt(boosts, t) {
+    let rate = 1;
+    for (const b of boosts) {
+      if (t >= b.startTime && t < b.endTime) rate += b.extraRate;
+    }
+    return rate;
+  }
+
+  /**
+   * 取出作用于某个任务的加速区间。
+   * 「持续协助」的学徒/助手的首轮工作窗口之后，按每 24 小时再工作 1 小时的节奏展开。
+   */
+  function getTaskBoosts(acc, task) {
+    const result = [];
+    (acc.boosts || []).forEach(b => {
+      const matchTask = b.scope === 'task' && b.taskId === task.id;
+      const matchCategory = b.scope === task.category;
+      if (!matchTask && !matchCategory) return;
+      if (b.endTime <= task.checkpointAt && !(matchTask && b.autoContinue)) return;
+
+      result.push(b);
+      if (!(matchTask && b.autoContinue)) return;
+
+      const cycle = DAY_MS;
+      const workLen = Math.max(60000, b.endTime - b.startTime);
+      for (let i = 1; i <= AUTO_ASSIST_DAYS; i++) {
+        const start = b.startTime + i * cycle;
+        result.push({
+          id: `${b.id}@${i}`,
+          kind: b.kind,
+          scope: 'task',
+          taskId: b.taskId,
+          extraRate: b.extraRate,
+          startTime: start,
+          endTime: start + workLen,
+          autoContinue: false
+        });
+      }
+    });
+    return result;
+  }
+
+  /**
+   * 计算任务在 now 时刻的：
+   *   remainWorkMs    游戏内显示的剩余基础工期（加速时快速减少）
+   *   predictedEndTime 考虑当前已排期加速后的真实完成时刻
+   *   currentRate     当前实时流速（1 = 常速）
+   */
+  function evaluateTask(acc, task, now = Date.now()) {
+    const boosts = getTaskBoosts(acc, task);
+    const checkpoint = Number(task.checkpointAt) || now;
+
+    const points = new Set([checkpoint, now]);
+    boosts.forEach(b => {
+      if (b.endTime > checkpoint) {
+        points.add(b.startTime);
+        points.add(b.endTime);
+      }
+    });
+    const sorted = Array.from(points).filter(t => Number.isFinite(t)).sort((a, b) => a - b);
+
+    /* 1) 从 checkpoint 积分到 now，得到当前剩余基础工期 */
+    let rem = Math.max(0, Number(task.remainWorkMs) || 0);
+    for (let i = 0; i < sorted.length - 1 && rem > 0; i++) {
+      const segStart = Math.max(sorted[i], checkpoint);
+      const segEnd = Math.min(sorted[i + 1], now);
+      if (segEnd <= segStart) continue;
+      rem = Math.max(0, rem - (segEnd - segStart) * calcRateAt(boosts, (segStart + segEnd) / 2));
+    }
+    const remainWorkMs = rem;
+
+    let currentRate = 1;
+    if (remainWorkMs > 0) currentRate = calcRateAt(boosts, now + 1);
+
+    /* 2) 从 now 往后推算真实完成时刻 */
+    let predictedEndTime = now;
+    if (remainWorkMs > 0) {
+      let left = remainWorkMs;
+      let cursor = now;
+      predictedEndTime = now + remainWorkMs;
+      const future = sorted.filter(t => t > now);
+      for (const point of future) {
+        const rate = calcRateAt(boosts, (cursor + point) / 2);
+        const work = (point - cursor) * rate;
+        if (left <= work) {
+          predictedEndTime = cursor + left / rate;
+          left = 0;
+          break;
+        }
+        left -= work;
+        cursor = point;
+      }
+      if (left > 0) predictedEndTime = cursor + left;
+    }
+
+    return { remainWorkMs, predictedEndTime, currentRate };
+  }
+
+  /** 结算单个任务：把剩余工期推进到 now，并刷新预计完成时刻。 */
+  function settleTask(acc, task, now = Date.now()) {
+    const result = evaluateTask(acc, task, now);
+    task.remainWorkMs = result.remainWorkMs;
+    task.checkpointAt = now;
+    task.endTime = result.predictedEndTime;
+    return result;
+  }
+
+  /** 结算整个账号；随后清理不再生效的加速区间。 */
+  function settleAccount(acc, now = Date.now()) {
+    (acc.tasks || []).forEach(task => settleTask(acc, task, now));
+    pruneBoosts(acc, now);
+  }
+
+  function pruneBoosts(acc, now = Date.now()) {
+    const taskById = new Map((acc.tasks || []).map(t => [t.id, t]));
+    acc.boosts = (acc.boosts || []).filter(b => {
+      if (b.scope === 'task' && !taskById.has(b.taskId)) return false;
+      if (b.autoContinue) {
+        const target = taskById.get(b.taskId);
+        return !!target && evaluateTask(acc, target, now).remainWorkMs > 0;
+      }
+      return b.endTime > now;
+    });
+  }
+
+  function buildTaskIndex() {
+    const index = new Map();
+    state.accounts.forEach(acc => acc.tasks.forEach(task => index.set(task.id, { acc, task })));
+    return index;
   }
 
   // ---------- 主页面卡片 ----------
@@ -980,7 +1212,12 @@
 
       const cd = el('span', 'cd');
       cd.dataset.end = task.endTime;
+      cd.dataset.task = task.id;
       line2.appendChild(cd);
+
+      const rate = el('span', 'cd-rate hidden');
+      rate.dataset.task = task.id;
+      line2.appendChild(rate);
 
       if (!done) {
         const finish = el('span', 'finish up-finish', formatFinishTime(task.endTime));
@@ -1160,10 +1397,15 @@
     top.appendChild(el('span', 'tname', task.name));
 
     const cdWrap = el('span', 'cd-wrap');
+    const cdLine = el('span', 'cd-line');
     const cd = el('span', 'cd');
     cd.dataset.end = task.endTime;
     cd.dataset.task = task.id;
-    cdWrap.appendChild(cd);
+    cdLine.appendChild(cd);
+    const rate = el('span', 'cd-rate hidden');
+    rate.dataset.task = task.id;
+    cdLine.appendChild(rate);
+    cdWrap.appendChild(cdLine);
     const finish = el('span', 'finish', formatFinishTime(task.endTime));
     finish.dataset.end = task.endTime;
     cdWrap.appendChild(finish);
@@ -1184,8 +1426,7 @@
     } else {
       const bar = el('div', 'bar');
       const fill = el('span', 'bar-fill');
-      fill.dataset.end = task.endTime;
-      fill.dataset.duration = task.durationMs || 0;
+      fill.dataset.task = task.id;
       bar.appendChild(fill);
       line.appendChild(bar);
     }
@@ -1203,8 +1444,19 @@
   }
 
   // ---------- 倒计时 ----------
-  function formatDuration(ms) {
+  function formatDuration(ms, withSeconds = false) {
     if (ms <= 0) return '已完成';
+    if (withSeconds) {
+      const totalSec = Math.ceil(ms / 1000);
+      const d = Math.floor(totalSec / 86400);
+      const h = Math.floor((totalSec % 86400) / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      if (d > 0) return `${d}天${h}时${m}分${s}秒`;
+      if (h > 0) return `${h}时${m}分${s}秒`;
+      if (m > 0) return `${m}分${s}秒`;
+      return `${s}秒`;
+    }
     const totalMinutes = Math.ceil(ms / 60000);
     const d = Math.floor(totalMinutes / 1440);
     const h = Math.floor((totalMinutes % 1440) / 60);
@@ -1239,23 +1491,45 @@
     node.classList.add(tier);
   }
 
-  function updateCountdown(node) {
-    const remain = Number(node.dataset.end) - Date.now();
-    node.textContent = formatDuration(remain);
-    applyTier(node, remain);
+  function updateCountdown(node, index, now) {
+    const entry = node.dataset.task ? index.get(node.dataset.task) : null;
+    if (!entry) {
+      const remain = Number(node.dataset.end) - now;
+      node.textContent = formatDuration(remain);
+      applyTier(node, remain);
+      return;
+    }
+    const result = evaluateTask(entry.acc, entry.task, now);
+    node.textContent = formatDuration(result.remainWorkMs, result.currentRate > 1);
+    applyTier(node, Number(entry.task.endTime) - now);
   }
 
-  function updateBar(node) {
-    const remain = Number(node.dataset.end) - Date.now();
-    const duration = Number(node.dataset.duration) || 0;
+  function updateRateBadge(node, index, now) {
+    const entry = index.get(node.dataset.task);
+    if (!entry) { node.classList.add('hidden'); return; }
+    const result = evaluateTask(entry.acc, entry.task, now);
+    if (result.remainWorkMs > 0 && result.currentRate > 1) {
+      node.textContent = `⚡${Math.round(result.currentRate * 10) / 10}x`;
+      node.classList.remove('hidden');
+    } else {
+      node.classList.add('hidden');
+    }
+  }
+
+  function updateBar(node, index, now) {
+    const entry = index.get(node.dataset.task);
+    if (!entry) return;
+    const result = evaluateTask(entry.acc, entry.task, now);
+    const duration = Number(entry.task.durationMs) || 0;
     let pct = 100;
-    if (remain > 0) {
-      pct = duration > 0 ? Math.min(99, Math.max(0, (1 - remain / duration) * 100)) : 0;
+    if (result.remainWorkMs > 0) {
+      pct = duration > 0 ? Math.min(99, Math.max(0, (1 - result.remainWorkMs / duration) * 100)) : 0;
     }
     node.style.width = pct.toFixed(1) + '%';
-    applyTier(node, remain);
+    const remainReal = Number(entry.task.endTime) - now;
+    applyTier(node, remainReal);
     const bar = node.parentElement;
-    if (bar) bar.classList.toggle('bar-hidden', remain > 24 * 3600000 && pct <= 5);
+    if (bar) bar.classList.toggle('bar-hidden', remainReal > 24 * HOUR_MS && pct <= 5);
   }
 
   function updateDocumentTitle() {
@@ -1271,20 +1545,63 @@
       : `${formatDuration(nearest - now)} · 部落冲突倒计时`;
   }
 
-  function tick() {
-    document.querySelectorAll('.cd[data-end]').forEach(updateCountdown);
-    document.querySelectorAll('.bar-fill[data-end]').forEach(updateBar);
+  let accelRendering = false;
+  let accelStateSig = null;
+  let accelBoostSig = null;
+
+  function itemBoostSignature(acc) {
+    return visibleBoosts(acc, Date.now()).map(b => b.id).join(',');
+  }
+
+  function updateLiveCountdowns() {
+    const now = Date.now();
+    const index = buildTaskIndex();
+    document.querySelectorAll('.cd[data-task]').forEach(node => updateCountdown(node, index, now));
+    document.querySelectorAll('.cd-rate[data-task]').forEach(node => updateRateBadge(node, index, now));
+    document.querySelectorAll('.bar-fill[data-task]').forEach(node => updateBar(node, index, now));
     document.querySelectorAll('.finish[data-end]').forEach(node => {
       node.textContent = formatFinishTime(Number(node.dataset.end));
     });
     document.querySelectorAll('.up-item[data-end]').forEach(item => {
-      applyTier(item, Number(item.dataset.end) - Date.now());
+      applyTier(item, Number(item.dataset.end) - now);
     });
     document.querySelectorAll('.assistant-cd[data-end]').forEach(node => {
-      const remain = Number(node.dataset.end) - Date.now();
+      const remain = Number(node.dataset.end) - now;
       node.textContent = remain > 0 ? formatDuration(remain) : '可用';
     });
+    document.querySelectorAll('.boost-cd[data-end]').forEach(node => {
+      const remain = Number(node.dataset.end) - now;
+      node.textContent = remain > 0 ? formatDuration(remain, true) : '已结束';
+    });
     updateDocumentTitle();
+  }
+
+  function tick() {
+    updateLiveCountdowns();
+
+    if (accelRendering || !accelAccountId) return;
+    const mask = document.getElementById('accelMask');
+    if (!mask || !mask.classList.contains('show')) return;
+    const acc = getAccelAccount();
+
+    if (accelTab === 'item') {
+      /* 药水到期 / 任务完成时，自动移除顶部失效的加速条 */
+      const sig = itemBoostSignature(acc);
+      if (accelBoostSig === null) { accelBoostSig = sig; return; }
+      if (sig !== accelBoostSig) {
+        accelBoostSig = sig;
+        renderAccel();
+      }
+      return;
+    }
+
+    /* 学徒页：冷却/协助窗口到点后自动刷新按钮状态 */
+    const sig = apprenticeUiSignature(acc);
+    if (accelStateSig === null) { accelStateSig = sig; return; }
+    if (sig !== accelStateSig) {
+      accelStateSig = sig;
+      renderAccel();
+    }
   }
 
   function getDoneSignature() {
@@ -1312,6 +1629,7 @@
     const acc = state.accounts.find(a => a.id === accountId) || getActiveAccount();
     if (!skipConfirm && !confirm('确定删除这个倒计时吗？')) return;
     acc.tasks = acc.tasks.filter(t => t.id !== taskId);
+    settleAccount(acc, Date.now());
     saveState();
     renderAll();
   }
@@ -1323,6 +1641,8 @@
   function openAccel(accountId) {
     accelAccountId = accountId;
     accelTab = 'item';
+    accelStateSig = null;
+    accelBoostSig = null;
     renderAccel();
     document.getElementById('accelMask').classList.add('show');
   }
@@ -1330,6 +1650,8 @@
   function closeAccel() {
     document.getElementById('accelMask').classList.remove('show');
     accelAccountId = null;
+    accelStateSig = null;
+    accelBoostSig = null;
   }
 
   function getAccelAccount() {
@@ -1337,16 +1659,23 @@
   }
 
   function renderAccel() {
-    const acc = getAccelAccount();
-    document.getElementById('accelTitle').textContent = `加速 · ${acc.name}`;
-    document.querySelectorAll('.accel-tab').forEach(tab => {
-      tab.classList.toggle('active', tab.dataset.tab === accelTab);
-    });
-    const body = document.getElementById('accelBody');
-    body.innerHTML = '';
-    if (accelTab === 'item') renderItemTab(acc, body);
-    else renderApprenticeTab(acc, body);
-    tick();
+    accelRendering = true;
+    try {
+      const acc = getAccelAccount();
+      document.getElementById('accelTitle').textContent = `加速 · ${acc.name}`;
+      document.querySelectorAll('.accel-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === accelTab);
+      });
+      const body = document.getElementById('accelBody');
+      body.innerHTML = '';
+      if (accelTab === 'item') renderItemTab(acc, body);
+      else renderApprenticeTab(acc, body);
+      accelStateSig = accelTab === 'apprentice' ? apprenticeUiSignature(acc) : null;
+      accelBoostSig = accelTab === 'item' ? itemBoostSignature(acc) : null;
+    } finally {
+      accelRendering = false;
+    }
+    updateLiveCountdowns();
   }
 
   function getActiveTasks(acc, category) {
@@ -1391,54 +1720,161 @@
     return row;
   }
 
-  function actionRow(label, onUse) {
+  function actionRow(label, note, onUse) {
     const row = el('div', 'accel-row');
-    row.appendChild(el('span', 'accel-row-note', '对所有进行中的建筑生效'));
+    row.appendChild(el('span', 'accel-row-note', note || ''));
     const btn = el('button', 'primary', label);
     btn.addEventListener('click', onUse);
     row.appendChild(btn);
     return row;
   }
 
-  /** 自定义加速：工人作用于全体，研究与战宠可多选。 */
-  function customAccelRow(builders, researches, pets) {
-    const wrap = el('div', 'custom-accel');
+  function usePotionBoost(acc, kind, scope, extraRate, now = Date.now()) {
+    const existing = (acc.boosts || []).find(b => b.kind === kind && b.endTime > now);
+    if (existing) {
+      /* 同类药水连续使用只延长持续时间，不叠加倍率 */
+      existing.endTime += HOUR_MS;
+      return;
+    }
+    acc.boosts.push({
+      id: uid(), kind, scope, taskId: null,
+      extraRate, startTime: now, endTime: now + HOUR_MS,
+      autoContinue: false
+    });
+  }
 
-    function addGroup(title, tasks, allBuilders) {
-      if (!tasks.length) return [];
-      const group = el('div', 'accel-check-group');
-      group.appendChild(el('div', 'accel-check-head', title));
-      const checks = [];
+  function completeTaskNow(acc, task, now = Date.now()) {
+    task.remainWorkMs = 0;
+    task.checkpointAt = now;
+    task.endTime = now;
+    acc.boosts = (acc.boosts || []).filter(b => !(b.scope === 'task' && b.taskId === task.id));
+  }
 
-      if (allBuilders) {
-        const label = el('label', 'accel-check');
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        label.appendChild(checkbox);
-        label.appendChild(el('span', null, `全体工人（${tasks.length} 个进行中）`));
-        group.appendChild(label);
-        checks.push({ checkbox, tasks });
+  function visibleBoosts(acc, now) {
+    const taskById = new Map(acc.tasks.map(t => [t.id, t]));
+    return (acc.boosts || []).filter(b => {
+      if (b.scope === 'task') {
+        const task = taskById.get(b.taskId);
+        if (!task) return false;
+        if (evaluateTask(acc, task, now).remainWorkMs <= 0) return false;
+        return b.autoContinue || b.endTime > now;
+      }
+      return b.endTime > now;
+    });
+  }
+
+  function boostDisplayName(acc, b) {
+    const meta = BOOST_META[b.kind] || BOOST_META.custom;
+    let name = meta.label;
+    if (b.kind === 'custom') name += ` ×${b.extraRate + 1}`;
+    else if (meta.rateText) name += ` ${meta.rateText}`;
+    else if (b.extraRate > 0) name += ` +${b.extraRate} 倍`;
+    if (b.scope === 'task') {
+      const task = acc.tasks.find(t => t.id === b.taskId);
+      if (task) name += ` · ${taskLabel(task)}`;
+    } else if (CATEGORY_META[b.scope]) {
+      name += ` · ${CATEGORY_META[b.scope].label}`;
+    }
+    return name;
+  }
+
+  function renderBoostList(acc, body, now) {
+    const boosts = visibleBoosts(acc, now);
+    if (!boosts.length) return;
+
+    const box = el('div', 'boost-box');
+    const head = el('div', 'boost-box-head');
+    head.appendChild(el('span', null, '⚡ 生效中的加速'));
+    head.appendChild(el('span', 'boost-note', '重叠时额外倍率相加'));
+    box.appendChild(head);
+
+    boosts.forEach(b => {
+      const item = el('div', 'boost-item');
+      item.appendChild(el('span', 'boost-name', boostDisplayName(acc, b)));
+
+      if (b.kind === 'builder_apprentice' || b.kind === 'lab_assistant') {
+        const st = getApprenticeState(acc, b.kind, now);
+        if (b.autoContinue && st.state === 'waiting') {
+          item.appendChild(el('span', 'boost-cd', `下一轮 ${formatFinishTime(st.nextStart)}`));
+        } else {
+          const cd = el('span', 'boost-cd');
+          cd.dataset.end = st.state === 'working' ? st.endTime : b.endTime;
+          item.appendChild(cd);
+        }
       } else {
-        tasks.forEach(task => {
-          const label = el('label', 'accel-check');
-          const checkbox = document.createElement('input');
-          checkbox.type = 'checkbox';
-          label.appendChild(checkbox);
-          label.appendChild(el('span', null, task.name));
-          group.appendChild(label);
-          checks.push({ checkbox, task });
-        });
+        const cd = el('span', 'boost-cd');
+        cd.dataset.end = b.endTime;
+        item.appendChild(cd);
       }
 
-      wrap.appendChild(group);
-      return checks;
+      if (b.kind.endsWith('_potion')) {
+        const extend = el('button', null, '+1 小时');
+        extend.title = '连续续杯，延长 1 小时';
+        extend.addEventListener('click', () => applyAccel(acc2 => {
+          const target = acc2.boosts.find(x => x.id === b.id);
+          if (target) target.endTime += HOUR_MS;
+        }));
+        item.appendChild(extend);
+      }
+
+      const remove = el('button', 'danger', '取消');
+      remove.title = '已经生效的加速保留，后续不再加速';
+      remove.addEventListener('click', () => {
+        if (!confirm('取消这条加速吗？已经生效的部分会保留。')) return;
+        applyAccel(acc2 => {
+          acc2.boosts = acc2.boosts.filter(x => x.id !== b.id);
+        });
+      });
+      item.appendChild(remove);
+      box.appendChild(item);
+    });
+
+    body.appendChild(box);
+  }
+
+  /** 自定义加速：选择目标 + 倍率 + 持续时长。 */
+  function customAccelRow(builders, researches, pets) {
+    const wrap = el('div', 'custom-accel');
+    let builderAll = null;
+    const builderChecks = [];
+    const researchChecks = [];
+    const petChecks = [];
+
+    function addCheck(group, task) {
+      const label = el('label', 'accel-check');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      label.appendChild(checkbox);
+      label.appendChild(el('span', null, taskLabel(task)));
+      group.appendChild(label);
+      return { checkbox, task };
     }
 
-    const builderChecks = addGroup('建筑工人', builders, true);
-    const researchChecks = addGroup('研究', researches, false);
-    const petChecks = addGroup('战宠', pets, false);
+    if (builders.length) {
+      const group = el('div', 'accel-check-group');
+      group.appendChild(el('div', 'accel-check-head', '建筑工人'));
+      const allLabel = el('label', 'accel-check');
+      builderAll = document.createElement('input');
+      builderAll.type = 'checkbox';
+      allLabel.appendChild(builderAll);
+      allLabel.appendChild(el('span', null, `全体建筑工人（${builders.length} 个进行中，期间新开也生效）`));
+      group.appendChild(allLabel);
+      builders.forEach(task => builderChecks.push(addCheck(group, task)));
+      wrap.appendChild(group);
+    }
 
-    const row = el('div', 'accel-row');
+    function addGroup(title, tasks, bucket) {
+      if (!tasks.length) return;
+      const group = el('div', 'accel-check-group');
+      group.appendChild(el('div', 'accel-check-head', title));
+      tasks.forEach(task => bucket.push(addCheck(group, task)));
+      wrap.appendChild(group);
+    }
+    addGroup('研究', researches, researchChecks);
+    addGroup('战宠', pets, petChecks);
+
+    const row1 = el('div', 'accel-row');
+    row1.appendChild(el('span', 'accel-field-label', '倍率'));
     const mult = document.createElement('input');
     mult.type = 'number';
     mult.className = 'accel-mult';
@@ -1447,54 +1883,95 @@
     mult.value = '2';
     mult.title = '加速倍率';
     mult.setAttribute('aria-label', '加速倍率');
+    row1.appendChild(mult);
+    row1.appendChild(el('span', 'accel-unit', '倍'));
 
+    row1.appendChild(el('span', 'accel-field-label', '持续'));
+    const duration = document.createElement('input');
+    duration.type = 'number';
+    duration.className = 'accel-mult';
+    duration.min = '1';
+    duration.step = '1';
+    duration.value = '60';
+    duration.title = '持续时长';
+    duration.setAttribute('aria-label', '持续时长');
+    row1.appendChild(duration);
+
+    const unit = document.createElement('select');
+    unit.style.flex = 'none';
+    unit.style.width = 'auto';
+    [['minute', '分钟'], ['hour', '小时']].forEach(([value, text]) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = text;
+      unit.appendChild(opt);
+    });
+    row1.appendChild(unit);
+    wrap.appendChild(row1);
+
+    const row2 = el('div', 'accel-row');
+    row2.appendChild(el('span', 'accel-row-note', '加速期间新开始的任务同样生效，多份加速按额外倍率相加。'));
     const btn = el('button', 'primary', '应用');
     btn.addEventListener('click', () => {
       const multiplier = Number(mult.value);
+      const amount = Number(duration.value);
+      const durationMs = Math.round(amount * (unit.value === 'hour' ? HOUR_MS : 60000));
       if (!Number.isFinite(multiplier) || multiplier <= 1) {
         alert('加速倍率需大于 1');
         return;
       }
+      if (!Number.isFinite(durationMs) || durationMs <= 0) {
+        alert('持续时长需大于 0');
+        return;
+      }
 
+      const allBuilders = !!(builderAll && builderAll.checked);
       const targets = [];
-      builderChecks.forEach(item => {
-        if (item.checkbox.checked) targets.push(...item.tasks);
-      });
-      researchChecks.forEach(item => {
-        if (item.checkbox.checked) targets.push(item.task);
-      });
-      petChecks.forEach(item => {
-        if (item.checkbox.checked) targets.push(item.task);
-      });
+      if (!allBuilders) {
+        builderChecks.forEach(item => { if (item.checkbox.checked) targets.push(item.task); });
+      }
+      researchChecks.forEach(item => { if (item.checkbox.checked) targets.push(item.task); });
+      petChecks.forEach(item => { if (item.checkbox.checked) targets.push(item.task); });
 
-      if (!targets.length) {
+      if (!allBuilders && !targets.length) {
         alert('请至少选择一个加速目标');
         return;
       }
 
-      applyAccel(() => {
+      applyAccel(acc2 => {
+        const now = Date.now();
+        const boost = scope => ({
+          id: uid(), kind: 'custom', scope, taskId: null,
+          extraRate: multiplier - 1, startTime: now, endTime: now + durationMs,
+          autoContinue: false
+        });
+        if (allBuilders) acc2.boosts.push(boost('builder'));
         targets.forEach(task => {
-          task.endTime -= (multiplier - 1) * 3600 * 1000;
+          const item = boost('task');
+          item.taskId = task.id;
+          acc2.boosts.push(item);
         });
       });
     });
-
-    row.appendChild(el('span', 'accel-unit', '倍率'));
-    row.appendChild(mult);
-    row.appendChild(el('span', 'accel-unit', '倍'));
-    row.appendChild(btn);
-    wrap.appendChild(row);
+    row2.appendChild(btn);
+    wrap.appendChild(row2);
     return wrap;
   }
 
   function applyAccel(action) {
-    action();
+    const acc = getAccelAccount();
+    settleAccount(acc, Date.now());
+    action(acc);
+    settleAccount(acc, Date.now());
     saveState();
-    closeAccel();
     renderAll();
+    if (accelAccountId) renderAccel();
   }
 
   function renderItemTab(acc, body) {
+    const now = Date.now();
+    renderBoostList(acc, body, now);
+
     const builders = getActiveTasks(acc, 'builder');
     const researches = getActiveTasks(acc, 'research');
     const pets = getActiveTasks(acc, 'pet');
@@ -1506,26 +1983,26 @@
 
     body.appendChild(accelItem(
       '自定义加速',
-      '工人 / 研究 / 战宠',
-      '按 1 小时加速道具折算：倍率 N 减少 (N-1) 小时，例如 2 倍减 1 小时、4 倍减 3 小时、24 倍减 23 小时。',
+      '任意目标 · 自定义时长',
+      '按设定倍率持续一段时间，期间新开的任务也会生效；多份加速同时存在时，额外倍率相加（例如 10x 药水 + 8 级学徒 = 18x）。',
       customAccelRow(builders, researches, pets)
     ));
 
     if (builders.length) {
       body.appendChild(accelItem(
         '建筑工人药水',
-        `${builders.length} 个建筑进行中`,
-        '1 小时内全体建筑工人速度提升至 10 倍。按等效时间处理：立即为所有进行中的建筑任务各扣除 9 小时。',
-        actionRow('全部使用', () => applyAccel(() => {
-          builders.forEach(task => { task.endTime -= 9 * 3600 * 1000; });
+        '10 倍 · 1 小时',
+        '1 小时内全体建筑工人速度 ×10，期间新开的建筑任务也会生效。已有同类药水时再喝一瓶会延长 1 小时，而不是叠成 100 倍。',
+        actionRow('全部使用', `${builders.length} 个建筑进行中`, () => applyAccel(acc2 => {
+          usePotionBoost(acc2, 'builder_potion', 'builder', 9);
         }))
       ));
       body.appendChild(accelItem(
         '建筑之书',
         '',
         '立即完成一个正在进行的建筑升级或建造，不保留剩余时间。',
-        targetRow(builders, '立即完成', task => applyAccel(() => {
-          task.endTime = Date.now();
+        targetRow(builders, '立即完成', task => applyAccel(acc2 => {
+          completeTaskNow(acc2, task);
         }))
       ));
     }
@@ -1533,18 +2010,18 @@
     if (researches.length) {
       body.appendChild(accelItem(
         '研究药水',
-        `${researches.length} 个研究进行中`,
-        '1 小时内研究速度提升至 24 倍。按等效时间处理：为选中的研究任务扣除 23 小时。',
-        targetRow(researches, '使用', task => applyAccel(() => {
-          task.endTime -= 23 * 3600 * 1000;
+        '24 倍 · 1 小时',
+        '1 小时内全部研究速度 ×24，直接作用于研究分类；期间新开的研究（例如哥布林第二研究位）也会生效。已有同类药水时会延长 1 小时。',
+        actionRow('全部使用', `${researches.length} 个研究进行中`, () => applyAccel(acc2 => {
+          usePotionBoost(acc2, 'research_potion', 'research', 23);
         }))
       ));
       body.appendChild(accelItem(
         '研究之书 / 战斗之书',
         '',
         '立即完成选中的研究项目。',
-        targetRow(researches, '立即完成', task => applyAccel(() => {
-          task.endTime = Date.now();
+        targetRow(researches, '立即完成', task => applyAccel(acc2 => {
+          completeTaskNow(acc2, task);
         }))
       ));
     }
@@ -1552,69 +2029,177 @@
     if (pets.length) {
       body.appendChild(accelItem(
         '战宠药水',
-        `${pets.length} 个战宠升级进行中`,
-        '1 小时内战宠升级速度提升至 24 倍。按等效时间处理：为选中的战宠升级扣除 23 小时。',
-        targetRow(pets, '使用', task => applyAccel(() => {
-          task.endTime -= 23 * 3600 * 1000;
+        '24 倍 · 1 小时',
+        '1 小时内战宠升级速度 ×24，期间新开始的战宠升级也会生效。已有同类药水时会延长 1 小时。',
+        actionRow('全部使用', `${pets.length} 个战宠升级进行中`, () => applyAccel(acc2 => {
+          usePotionBoost(acc2, 'pet_potion', 'pet', 23);
         }))
       ));
     }
   }
 
-  function apprenticeMeta(level, ready, cooldownEnd) {
-    const meta = el('span', 'meta', `Lv.${level} · ${ready ? '可用' : '冷却中'}`);
-    if (!ready) {
-      meta.appendChild(document.createTextNode(' '));
-      const cd = el('span', 'assistant-cd');
-      cd.dataset.end = cooldownEnd;
-      meta.appendChild(cd);
+  function getApprenticeState(acc, kind, now = Date.now()) {
+    const isBuilder = kind === 'builder_apprentice';
+    const level = isBuilder ? acc.builderApprenticeLevel : acc.labAssistantLevel;
+    if (!(level > 0)) return { state: 'locked', level: 0 };
+
+    const cooldownEnd = Number(isBuilder ? acc.builderApprenticeCooldownEnd : acc.labAssistantCooldownEnd) || 0;
+    const boost = (acc.boosts || []).find(b =>
+      b.kind === kind && b.scope === 'task' && (b.autoContinue || b.endTime > now)
+    );
+
+    if (boost) {
+      const target = acc.tasks.find(t => t.id === boost.taskId);
+      const stillWorking = target ? evaluateTask(acc, target, now).remainWorkMs > 0 : false;
+
+      if (!boost.autoContinue) {
+        if (boost.endTime > now && stillWorking) {
+          return { state: 'working', level, boost, taskId: boost.taskId, endTime: boost.endTime };
+        }
+      } else if (stillWorking) {
+        const workLen = Math.max(60000, boost.endTime - boost.startTime);
+        const elapsed = Math.max(0, now - boost.startTime);
+        let start = boost.startTime + Math.floor(elapsed / DAY_MS) * DAY_MS;
+        let end = start + workLen;
+        while (now >= end) {
+          start += DAY_MS;
+          end += DAY_MS;
+        }
+        if (now >= start) {
+          return { state: 'working', level, boost, taskId: boost.taskId, endTime: end, auto: true };
+        }
+        return { state: 'waiting', level, boost, taskId: boost.taskId, nextStart: start, auto: true };
+      }
     }
-    return meta;
+
+    if (cooldownEnd > now) return { state: 'cooldown', level, cooldownEnd };
+    return { state: 'ready', level };
+  }
+
+  function apprenticeUiSignature(acc) {
+    const now = Date.now();
+    return ['builder_apprentice', 'lab_assistant'].map(kind => {
+      const st = getApprenticeState(acc, kind, now);
+      return `${kind}:${st.state}:${st.taskId || ''}`;
+    }).join('|');
+  }
+
+  function assignAssistant(acc, kind, task) {
+    const isBuilder = kind === 'builder_apprentice';
+    const level = isBuilder ? acc.builderApprenticeLevel : acc.labAssistantLevel;
+    if (!(level > 0)) return;
+    const now = Date.now();
+
+    acc.boosts = (acc.boosts || []).filter(b => !(b.kind === kind && b.scope === 'task' && b.taskId === task.id));
+    acc.boosts.push({
+      id: uid(), kind, scope: 'task', taskId: task.id,
+      extraRate: level, startTime: now, endTime: now + APPRENTICE_WORK_MS,
+      autoContinue: !!(isBuilder ? acc.builderApprenticeAutoContinue : acc.labAssistantAutoContinue)
+    });
+
+    const result = settleTask(acc, task, now);
+    const cooldownEnd = Math.min(now + APPRENTICE_WORK_MS, result.predictedEndTime) + APPRENTICE_COOLDOWN_MS;
+    if (isBuilder) acc.builderApprenticeCooldownEnd = cooldownEnd;
+    else acc.labAssistantCooldownEnd = cooldownEnd;
   }
 
   function renderApprenticeTab(acc, body) {
+    body.appendChild(el('div', 'accel-note', '学徒 / 助手每次协助 1 小时后进入 23 小时冷却，两人独立计算；等级 0 表示尚未解锁。'));
+
+    renderAssistantCard(acc, body, 'builder_apprentice');
+    renderAssistantCard(acc, body, 'lab_assistant');
+  }
+
+  function renderAssistantCard(acc, body, kind) {
+    const isBuilder = kind === 'builder_apprentice';
     const now = Date.now();
-    const builderCooldownEnd = Number(acc.builderApprenticeCooldownEnd) || 0;
-    const labCooldownEnd = Number(acc.labAssistantCooldownEnd) || 0;
-    const builderReady = builderCooldownEnd <= now;
-    const labReady = labCooldownEnd <= now;
+    const level = isBuilder ? acc.builderApprenticeLevel : acc.labAssistantLevel;
+    const state = getApprenticeState(acc, kind, now);
+    const tasks = getActiveTasks(acc, isBuilder ? 'builder' : 'research');
+    const target = state.taskId ? acc.tasks.find(t => t.id === state.taskId) : null;
 
-    body.appendChild(el('div', 'accel-note', '两名助手各自独立计算 23 小时冷却，互不影响。'));
-
-    const builders = getActiveTasks(acc, 'builder');
-    const builderLevel = acc.builderApprenticeLevel || 1;
-    let builderControl;
-    if (!builders.length) {
-      builderControl = el('div', 'accel-empty', '暂无进行中的建筑任务');
+    /* 标题右侧状态 */
+    const meta = el('span', 'meta');
+    if (level <= 0) {
+      meta.textContent = '未解锁';
+    } else if (state.state === 'working') {
+      meta.appendChild(document.createTextNode(`Lv.${level} · ${state.auto ? '持续协助中' : '协助中'} `));
+      const cd = el('span', 'assistant-cd');
+      cd.dataset.end = state.endTime;
+      meta.appendChild(cd);
+    } else if (state.state === 'waiting') {
+      meta.textContent = `Lv.${level} · 等待下一轮 ${formatFinishTime(state.nextStart)}`;
+    } else if (state.state === 'cooldown') {
+      meta.appendChild(document.createTextNode(`Lv.${level} · 冷却中 `));
+      const cd = el('span', 'assistant-cd');
+      cd.dataset.end = state.cooldownEnd;
+      meta.appendChild(cd);
     } else {
-      builderControl = targetRow(builders, '指派', task => applyAccel(() => {
-        task.endTime -= builderLevel * 3600 * 1000;
-        acc.builderApprenticeCooldownEnd = Date.now() + 23 * 3600 * 1000;
-      }), !builderReady);
+      meta.textContent = `Lv.${level} · 可用`;
     }
-    body.appendChild(accelItem(
-      '建筑工人学徒',
-      apprenticeMeta(builderLevel, builderReady, builderCooldownEnd),
-      `立即为目标建筑扣除 ${builderLevel} 小时升级时间。`,
-      builderControl
-    ));
 
-    const researches = getActiveTasks(acc, 'research');
-    const labLevel = acc.labAssistantLevel || 1;
-    let labControl;
-    if (!researches.length) {
-      labControl = el('div', 'accel-empty', '暂无进行中的研究任务');
+    let desc;
+    if (level <= 0) {
+      desc = '尚未解锁：在「配置 → 账号」中把等级设为 1 以上后即可使用。';
+    } else if (state.state === 'working') {
+      desc = `正在为「${target ? taskLabel(target) : '任务'}」提供额外 +${level} 倍速度，1 小时后进入冷却。`;
+    } else if (state.state === 'waiting') {
+      desc = `已锁定「${target ? taskLabel(target) : '任务'}」，本轮冷却结束后会自动继续协助。`;
+    } else if (state.state === 'cooldown') {
+      desc = '本轮协助已经结束，冷却 23 小时后可再次指派。';
     } else {
-      labControl = targetRow(researches, '指派', task => applyAccel(() => {
-        task.endTime -= labLevel * 3600 * 1000;
-        acc.labAssistantCooldownEnd = Date.now() + 23 * 3600 * 1000;
-      }), !labReady);
+      desc = `指派后 1 小时内目标额外 +${level} 倍速度，随后进入 23 小时冷却。`;
     }
+
+    const control = el('div', 'custom-accel');
+    if (level <= 0) {
+      control.appendChild(el('div', 'accel-empty', '未解锁'));
+    } else if (state.state === 'working' || state.state === 'waiting') {
+      const row = el('div', 'accel-row');
+      row.appendChild(el('span', 'accel-row-note', state.state === 'working' ? '本轮协助进行中' : '等待下一轮协助'));
+      const stop = el('button', 'danger', '取消协助');
+      stop.addEventListener('click', () => {
+        if (!confirm('取消协助吗？已经生效的部分会保留。')) return;
+        applyAccel(acc2 => {
+          acc2.boosts = (acc2.boosts || []).filter(b => b.kind !== kind);
+        });
+      });
+      row.appendChild(stop);
+      control.appendChild(row);
+    } else if (tasks.length) {
+      control.appendChild(targetRow(tasks, '指派', task => applyAccel(acc2 => {
+        assignAssistant(acc2, kind, task);
+      }), state.state !== 'ready'));
+    } else {
+      control.appendChild(el('div', 'accel-empty', isBuilder ? '暂无进行中的建筑任务' : '暂无进行中的研究任务'));
+    }
+
+    if (level > 0) {
+      const label = el('label', 'accel-check');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = !!(isBuilder ? acc.builderApprenticeAutoContinue : acc.labAssistantAutoContinue);
+      checkbox.addEventListener('change', () => {
+        if (isBuilder) acc.builderApprenticeAutoContinue = checkbox.checked;
+        else acc.labAssistantAutoContinue = checkbox.checked;
+        (acc.boosts || []).forEach(b => {
+          if (b.kind === kind && (b.autoContinue || b.endTime > Date.now())) b.autoContinue = checkbox.checked;
+        });
+        settleAccount(acc, Date.now());
+        saveState();
+        renderAll();
+        if (accelAccountId) renderAccel();
+      });
+      label.appendChild(checkbox);
+      label.appendChild(el('span', null, '持续协助直到当前升级完成（冷却结束后自动继续）'));
+      control.appendChild(label);
+    }
+
     body.appendChild(accelItem(
-      '实验室助手',
-      apprenticeMeta(labLevel, labReady, labCooldownEnd),
-      `立即为目标研究扣除 ${labLevel} 小时研究时间。`,
-      labControl
+      isBuilder ? '建筑工人学徒' : '实验室助手',
+      meta,
+      desc,
+      control
     ));
   }
 
@@ -1764,14 +2349,14 @@
       if (!task) return;
       catSel.value = task.category;
       document.getElementById('formName').value = task.name;
-      const remain = Math.max(0, task.endTime - Date.now());
+      const remain = evaluateTask(acc, task, Date.now()).remainWorkMs;
       const totalMinutes = Math.ceil(remain / 60000);
       document.getElementById('formDays').value = Math.floor(totalMinutes / 1440);
       document.getElementById('formHours').value = Math.floor((totalMinutes % 1440) / 60);
       document.getElementById('formMinutes').value = totalMinutes % 60;
       editingInitialMinutes = totalMinutes;
 
-      const isDone = task.endTime <= Date.now();
+      const isDone = remain <= 0;
       hint.textContent = isDone ? '这是已完成任务：填入新一轮升级时长后，会从当前时间重新开始倒计时。' : '';
       hint.classList.toggle('hidden', !isDone);
     } else {
@@ -1808,6 +2393,9 @@
     const durationMs = enteredMinutes * 60000;
     const now = Date.now();
 
+    /* 先把当前进度结算到 now，避免编辑时丢失加速期间已经推进的工期 */
+    settleAccount(acc, now);
+
     if (editingTaskId) {
       const task = acc.tasks.find(t => t.id === editingTaskId);
       if (!task) return;
@@ -1824,8 +2412,10 @@
       task.name = name;
       task.category = category;
       if (enteredMinutes !== editingInitialMinutes) {
-        task.endTime = now + durationMs;
+        /* 用户改了时长：按新一轮升级从当前时刻重新计算 */
         task.durationMs = durationMs;
+        task.remainWorkMs = durationMs;
+        task.checkpointAt = now;
       }
     } else {
       let slot;
@@ -1838,11 +2428,15 @@
         category,
         slot: category === 'builder' ? slot : undefined,
         name,
-        endTime: now + durationMs,
-        durationMs
+        durationMs,
+        checkpointAt: now,
+        remainWorkMs: durationMs,
+        endTime: now + durationMs
       });
     }
 
+    /* 重新推算预计完成时间（新任务/改分类后可能吃到当前生效的加速） */
+    settleAccount(acc, now);
     saveState();
     closeTaskForm();
     renderAll();
@@ -1852,8 +2446,10 @@
   function addAccount() {
     const acc = {
       id: uid(), name: `账号 ${state.accounts.length + 1}`, townHallLevel: 1, builderCount: 6,
-      builderApprenticeLevel: 1, labAssistantLevel: 1,
+      builderApprenticeLevel: 0, labAssistantLevel: 0,
+      builderApprenticeAutoContinue: false, labAssistantAutoContinue: false,
       builderApprenticeCooldownEnd: 0, labAssistantCooldownEnd: 0,
+      boosts: [],
       tasks: []
     };
     state.accounts.push(acc);
@@ -1885,6 +2481,7 @@
     const acc = getActiveAccount();
     acc.builderCount = n;
     acc.tasks = acc.tasks.filter(t => t.category !== 'builder' || t.slot <= n);
+    settleAccount(acc, Date.now());
     saveState();
     closeTaskForm();
     renderAll();
@@ -2016,12 +2613,16 @@
         ? Math.round(totalMinutes)
         : remainMinutes;
       const durationMs = durationMinutes * 60000;
+      const remainMs = remainMinutes * 60000;
       const task = {
         id: uid(),
         category,
         name,
-        endTime: now + durationMs,
-        durationMs
+        durationMs,
+        checkpointAt: now,
+        remainWorkMs: remainMs,
+        /* 结束时间用剩余时长，不能用总时长，否则刚导入的进度会从 0% 重新开始 */
+        endTime: now + remainMs
       };
 
       if (category === 'builder') {
@@ -2059,12 +2660,13 @@
       acc.townHallLevel = clampInt(data.townHallLevel, 1, 19, acc.townHallLevel);
     }
     if (data.builderApprenticeLevel != null) {
-      acc.builderApprenticeLevel = clampInt(data.builderApprenticeLevel, 1, 8, acc.builderApprenticeLevel);
+      acc.builderApprenticeLevel = clampInt(data.builderApprenticeLevel, 0, 8, acc.builderApprenticeLevel);
     }
     if (data.labAssistantLevel != null) {
-      acc.labAssistantLevel = clampInt(data.labAssistantLevel, 1, 12, acc.labAssistantLevel);
+      acc.labAssistantLevel = clampInt(data.labAssistantLevel, 0, 12, acc.labAssistantLevel);
     }
     acc.tasks = baseTasks.concat(newTasks);
+    settleAccount(acc, now);
 
     saveState();
     renderAll();
@@ -2469,15 +3071,17 @@
 
   document.getElementById('cfgBuilderApprenticeLevel').addEventListener('change', e => {
     const acc = getActiveAccount();
-    acc.builderApprenticeLevel = Math.min(8, Math.max(1, parseInt(e.target.value, 10) || 1));
+    acc.builderApprenticeLevel = Math.min(8, Math.max(0, parseInt(e.target.value, 10) || 0));
     saveState();
     renderAccountFields();
+    renderCards();
   });
   document.getElementById('cfgLabAssistantLevel').addEventListener('change', e => {
     const acc = getActiveAccount();
-    acc.labAssistantLevel = Math.min(12, Math.max(1, parseInt(e.target.value, 10) || 1));
+    acc.labAssistantLevel = Math.min(12, Math.max(0, parseInt(e.target.value, 10) || 0));
     saveState();
     renderAccountFields();
+    renderCards();
   });
 
   document.querySelectorAll('.accel-tab').forEach(tab => {
