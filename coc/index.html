@@ -3022,15 +3022,17 @@
     renderCards();
   });
   document.getElementById('closeConfigBtn').addEventListener('click', closeConfig);
-  document.getElementById('configMask').addEventListener('click', e => {
-    if (e.target.id === 'configMask') closeConfig();
-  });
+  /* 配置弹窗也不响应遮罩点击：表单较长，误触关闭会丢失填写内容 */
   document.getElementById('taskEditCloseBtn').addEventListener('click', closeTaskForm);
-  document.getElementById('taskEditMask').addEventListener('click', e => {
-    if (e.target.id === 'taskEditMask') closeTaskForm();
-  });
+  /* 任务编辑弹窗不响应遮罩点击：避免拖拽、误触时把正在填写的内容关掉 */
   document.addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Escape') {
+      /* 正在输入框 / 下拉框里操作时，Esc 只用来取消输入法或下拉，不关闭弹窗 */
+      const fields = ['INPUT', 'SELECT', 'TEXTAREA'];
+      const tag = e.target && e.target.tagName;
+      const activeTag = document.activeElement && document.activeElement.tagName;
+      if (fields.includes(tag) || fields.includes(activeTag)) return;
       const setup = document.getElementById('syncSetupMask');
       if (setup && setup.classList.contains('show')) {
         postponeSyncSetup();
@@ -3097,19 +3099,12 @@
     });
   });
   document.getElementById('accelCloseBtn').addEventListener('click', closeAccel);
-  document.getElementById('accelMask').addEventListener('click', e => {
-    if (e.target.id === 'accelMask') closeAccel();
-  });
+  /* 加速弹窗同样不响应遮罩点击，避免自定义加速填到一半被关掉 */
 
   document.getElementById('cfgAddTaskBtn').addEventListener('click', () => openTaskForm(null));
   document.getElementById('formCancelBtn').addEventListener('click', closeTaskForm);
   document.getElementById('formSaveBtn').addEventListener('click', saveTask);
-  document.getElementById('taskForm').addEventListener('keydown', e => {
-    if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
-      e.preventDefault();
-      saveTask();
-    }
-  });
+  /* 不再用 Enter 直接保存：中文输入法选词、误按回车时容易把弹窗关掉 */
   document.addEventListener('mouseup', () => {
     if (dragAccountId) return;
     document.querySelectorAll('.card').forEach(card => { card.draggable = false; });
