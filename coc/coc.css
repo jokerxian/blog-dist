@@ -1271,6 +1271,7 @@
   .codex-levels tr:last-child td { border-bottom: none; }
   .codex-levels tr.is-owned td { background: #fff8e4; }
   .codex-levels tr.is-owned td:first-child { color: var(--gold); font-weight: 700; }
+  .codex-levels tr.beyond-cap td { opacity: .48; }
   .codex-level-badge {
     display: inline-block; margin-left: 4px; padding: 0 4px;
     border-radius: 4px; background: #f0b429; color: #3b2a00;

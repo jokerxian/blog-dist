@@ -51,6 +51,7 @@
     1000019: '特斯拉电磁塔', 1000020: '法术工厂', 1000021: 'X连弩', 1000023: '暗黑重油钻井',
     1000024: '暗黑重油罐', 1000026: '暗黑训练营', 1000027: '地狱之塔', 1000028: '空气炮',
     1000029: '暗黑法术工厂', 1000031: '天鹰火炮', 1000032: '炸弹塔', 1000059: '攻城机器工坊',
+    1000064: '小博木屋',
     1000067: '投石炮', 1000068: '战宠小屋', 1000070: '铁匠铺', 1000071: '英雄殿堂',
     1000072: '法术塔', 1000077: '巨石碑', 1000079: '跳弹加农炮', 1000081: '多头箭塔',
     1000084: '奥仔控制站', 1000093: '帮手小屋',
@@ -83,6 +84,7 @@
     1000043: '夜世界特斯拉电磁塔',
     1000047: '夜世界工人小屋',
     1000049: '夜世界增援营地',
+    1000065: '小博控制室',
     1000080: '战斗直升机祭坛'
   };
   const COC_NIGHT_HERO_MAP = {
@@ -209,7 +211,9 @@
   /* 名称优先用图鉴（图鉴比手写映射更准），没有时用导入时保存的名称 */
   function villageItemName(item) {
     const entry = catalogEntry(item.id);
-    return (entry && entry.name) || item.name;
+    if (entry && entry.name) return entry.name;
+    const id = Number(item.id);
+    return COC_NAME_MAP[id] || COC_NIGHT_BUILDING_MAP[id] || COC_NIGHT_HERO_MAP[id] || item.name;
   }
 
   /* 等级文案：有图鉴时显示「当前/上限」，满级单独标注 */
@@ -218,14 +222,18 @@
     const count = item.count > 1 ? ` ×${item.count}` : '';
     if (!lvl) return count.trim();
     const info = catalogLevelInfo(item.id, lvl);
-    if (info && info.maxed) return `Lv.${lvl} 满级${count}`;
-    if (info) return `Lv.${lvl}/${info.maxLevel}${count}`;
+    const maxLevel = Number(item.cap) || (info && info.maxLevel) || 0;
+    if (maxLevel && lvl >= maxLevel) return `Lv.${lvl} 满级${count}`;
+    if (maxLevel) return `Lv.${lvl}/${maxLevel}${count}`;
     return `Lv.${lvl}${count}`;
   }
 
   /* 下一级升级总时长（来自图鉴），没有图鉴数据时返回空 */
   function villageNextText(item) {
-    const info = catalogLevelInfo(item.id, item.lvl);
+    const lvl = Number(item.lvl) || 0;
+    const cap = Number(item.cap) || 0;
+    if (cap && lvl >= cap) return '';
+    const info = catalogLevelInfo(item.id, lvl);
     if (!info || info.maxed || info.seconds == null) return '';
     if (!info.seconds) return `升 ${info.nextLevel} 级 即刻`;
     return `升 ${info.nextLevel} 级 ${formatDuration(info.seconds * 1000)}`;
@@ -2183,14 +2191,13 @@
 
     const addOwned = item => {
       const id = Number(item.id);
-      if (!id || id === 1000010 || id === 1000033) return;
-      const entry = catalogEntry(id);
+      if (!id || id === 1000010 || id === 1000033 || id === 1000064) return;
       const lvl = Number(item.lvl) || 0;
       if (lvl <= 0) return;
       const count = Math.max(1, Number(item.count) || 1);
       const candidate = makeTaskItem(
         id,
-        (entry && entry.name) || item.name || `项目 #${id}`,
+        villageItemName(item) || `项目 #${id}`,
         lvl, count, true, th, hasVillage
       );
       if (!candidate) return;
@@ -2814,6 +2821,20 @@
     return level;
   }
 
+  function codexMaxLevelForTH(item) {
+    if (item.category !== 'building' && item.category !== 'trap' && item.category !== 'hero') {
+      return 0;
+    }
+    const acc = getActiveAccount();
+    const village = acc && acc.village;
+    const th = item.world === 1
+      ? Number(village && village.builderHallLevel) || 0
+      : (Number(acc && acc.townHallLevel) || Number(village && village.townHallLevel) || 0);
+    if (!th) return 0;
+    const cap = catalogMaxLevelForTH(item.id, th);
+    return cap > 0 ? Math.max(codexOwnedLevel(item.id), cap) : 0;
+  }
+
   function codexCostChips(pairs) {
     if (!Array.isArray(pairs) || !pairs.length) {
       return el('span', 'codex-muted', '—');
@@ -2862,7 +2883,7 @@
     container.appendChild(stat);
   }
 
-  function renderCodexLevelTable(item, ownedLevel) {
+  function renderCodexLevelTable(item, ownedLevel, worldCap) {
     const wrap = el('div', 'codex-levels');
     const table = el('table');
     const showUnlock = item.category !== 'equipment' && codexHasVaryingUnlock(item);
@@ -2885,6 +2906,7 @@
       const index = level - 1;
       const row = document.createElement('tr');
       if (ownedLevel === level) row.className = 'is-owned';
+      if (worldCap && level > worldCap) row.classList.add('beyond-cap');
 
       const levelCell = document.createElement('td');
       levelCell.appendChild(document.createTextNode(String(level)));
@@ -2967,6 +2989,7 @@
     pane.appendChild(head);
 
     const ownedLevel = codexOwnedLevel(item.id);
+    const worldCap = codexMaxLevelForTH(item);
     const stats = el('div', 'codex-stats');
     addCodexStat(stats, '最高等级', `Lv.${item.maxLevel}`);
     if (item.category === 'equipment') {
@@ -2977,6 +3000,7 @@
       if (item.category === 'building' || item.category === 'trap' || item.category === 'hero') {
         addCodexStat(stats, '解锁',
           item.unlock ? `${item.world === 1 ? 'BH' : 'TH'} ${item.unlock}` : '—');
+        if (worldCap > 0) addCodexStat(stats, '当前大本上限', `Lv.${worldCap}`);
       } else {
         addCodexStat(stats, '升级场所', item.category === 'pet' ? '战宠小屋' : '实验室');
       }
@@ -2985,12 +3009,13 @@
       addCodexStat(stats, '费用资源', codexResourceSummary(item.entry) || '—');
     }
     pane.appendChild(stats);
-    pane.appendChild(renderCodexLevelTable(item, ownedLevel));
+    pane.appendChild(renderCodexLevelTable(item, ownedLevel, worldCap));
+    const capNote = worldCap > 0 && worldCap < item.maxLevel ? '；灰色等级为当前大本尚未解锁' : '';
     const note = item.category === 'equipment'
       ? '装备升级不耗时，消耗矿石；费用来自游戏 CSV。'
       : (item.start > 1
-        ? `该项目从 Lv.${item.start} 开始；时间为升到该等级所需；费用来自游戏 CSV。`
-        : '时间为升到该等级所需，1 级为建造 / 解锁；费用来自游戏 CSV。');
+        ? `该项目从 Lv.${item.start} 开始；时间为升到该等级所需；费用来自游戏 CSV${capNote}。`
+        : `时间为升到该等级所需，1 级为建造 / 解锁；费用来自游戏 CSV${capNote}。`);
     pane.appendChild(el('p', 'codex-note', note));
   }
 
@@ -3489,7 +3514,13 @@
       if (!id) return;
       if (!(Number(item.lvl) > 0 || Number(item.count) > 1 || Number(item.endAt) > 0)) return;
       seen.add(id);
-      items.push({ ...item, state: 'owned' });
+      const lvl = Number(item.lvl) || 0;
+      const capForTh = options.th ? catalogMaxLevelForTH(id, Number(options.th) || 0) : 0;
+      items.push({
+        ...item,
+        state: 'owned',
+        cap: capForTh ? Math.max(lvl, capForTh) : 0
+      });
     });
     if (!cocCatalog || !Array.isArray(ids)) return items;
 
@@ -4196,12 +4227,13 @@
     if (!v.mainBuildings.length && !v.mainTraps.length) {
       body.appendChild(el('p', 'village-empty-section', '重新导入游戏 JSON 后可查看主世界建筑和陷阱等级。'));
     }
-    body.appendChild(el('p', 'village-note', '🔒 未解锁项目列在每节底部，数字为解锁所需大本等级；「未建造」表示已解锁但还没建。「×N」表示同等级建筑的数量；「Lv.10/21」是当前等级/图鉴上限；「升 11 级 X」是下一级升级总时长。'));
+    body.appendChild(el('p', 'village-note', '🔒 未解锁项目列在每节底部，数字为解锁所需大本等级；「未建造」表示已解锁但还没建。「×N」表示同等级建筑的数量；「Lv.10/10」是当前等级 / 当前大本可升到的上限，达到上限显示「满级」；「升 11 级 X」是下一级升级总时长。'));
   }
 
   function renderVillageArmy(body, v) {
     const full = villageHasFullImport(v) && !!cocCatalog;
-    const merge = (owned, ids) => full ? villageWithCatalog(owned, ids) : owned;
+    const th = Number(v.townHallLevel) || 0;
+    const merge = (owned, ids) => full ? villageWithCatalog(owned, ids, { th }) : owned;
     renderVillageGrid(body, '英雄', merge(v.heroes, villageCatalogHeroIds(false)));
     renderVillageGrid(body, '战宠', merge(v.pets, villageCatalogPetIds()));
     renderVillageGrid(body, '兵种', merge(v.units, villageCatalogTroopIds(false)));
@@ -4250,24 +4282,24 @@
       section.appendChild(grid);
       body.appendChild(section);
     }
-    body.appendChild(el('p', 'village-note', '🔒 未解锁项目列在每节底部；装备按使用英雄分组，未解锁装备显示所需铁匠铺等级。导出没有装备“已拥有”标记：Lv.1 带 ? 表示可能是已拥有未升级，也可能是未获得，无法从 JSON 判断。兵种、法术、攻城机器按当前等级展示，「升 X 级」为图鉴里的下一级升级总时长。'));
+    body.appendChild(el('p', 'village-note', '🔒 未解锁项目列在每节底部；装备按使用英雄分组，未解锁装备显示所需铁匠铺等级。导出没有装备“已拥有”标记：Lv.1 带 ? 表示可能是已拥有未升级，也可能是未获得，无法从 JSON 判断。英雄的「x/y」中 y 为当前大本可升到的上限；兵种、法术、攻城机器按当前等级展示，「升 X 级」为图鉴里的下一级升级总时长。'));
   }
 
   function renderVillageNight(body, v) {
     const full = villageHasFullImport(v) && !!cocCatalog;
     const bh = Number(v.builderHallLevel) || 0;
     const merge = (owned, ids, opts) => full ? villageWithCatalog(owned, ids, opts) : owned;
-    renderVillageGrid(body, '夜世界英雄', merge(v.nightHeroes, villageCatalogHeroIds(true)));
+    renderVillageGrid(body, '夜世界英雄', merge(v.nightHeroes, villageCatalogHeroIds(true), { th: bh }));
     renderVillageDetailGrid(body, '夜世界建筑', merge(v.nightBuildings, villageCatalogBuildingIds(true), { building: true, th: bh }));
     renderVillageDetailGrid(body, '夜世界陷阱', merge(v.nightTraps, villageCatalogTrapIds(true), { building: true, th: bh }));
-    renderVillageDetailGrid(body, '夜世界兵种', merge(v.nightUnits, villageCatalogTroopIds(true)));
+    renderVillageDetailGrid(body, '夜世界兵种', merge(v.nightUnits, villageCatalogTroopIds(true), { th: bh }));
     if (!v.nightBuildings.length && v.nightUpgrades && v.nightUpgrades.length) {
       renderVillageUpgradeRows(body, '夜世界升级中', v.nightUpgrades);
     }
     if (!v.nightBuildings.length) {
       body.appendChild(el('p', 'village-note', '重新导入游戏 JSON 后可查看完整的夜世界建筑、陷阱和兵种等级。'));
     }
-    body.appendChild(el('p', 'village-note', '🔒 未解锁项目列在每节底部，数字为解锁所需夜世界大本等级；「未建造」表示已解锁但还没建。升级中的项目另显示导出时的剩余时间，夜世界升级不占主世界工人。'));
+    body.appendChild(el('p', 'village-note', '🔒 未解锁项目列在每节底部，数字为解锁所需夜世界大本等级；「未建造」表示已解锁但还没建；「Lv.x/y」的 y 为当前夜世界大本可升到的上限。升级中的项目另显示导出时的剩余时间，夜世界升级不占主世界工人。'));
   }
 
   function renderVillage(acc) {
