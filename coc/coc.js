@@ -824,7 +824,8 @@
     };
 
     const shownActive = active.slice(0, 6);
-    const shownFinished = finished.slice(0, 2);
+    /* 已完成任务全部展示，方便确认刚结束的项目 */
+    const shownFinished = finished;
     shownActive.forEach(entry => list.appendChild(renderUpItem(entry, false)));
     if (shownFinished.length) {
       if (shownActive.length) list.appendChild(el('div', 'up-divider', '已完成'));
